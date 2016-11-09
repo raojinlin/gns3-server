@@ -64,8 +64,8 @@ class Link:
             if other_node["node"] == node:
                 raise aiohttp.web.HTTPConflict(text="Cannot connect to itself")
 
-            if node.node_type in ["nat", "cloud"]:
-                if other_node["node"].node_type in ["nat", "cloud"]:
+            if node.node_type in ["nat", "cloud", "host_only"]:
+                if other_node["node"].node_type in ["nat", "cloud", "host_only"]:
                     raise aiohttp.web.HTTPConflict(text="It's not allowed to connect a {} to a {}".format(other_node["node"].node_type, node.node_type))
 
             # Check if user is not connecting serial => ethernet

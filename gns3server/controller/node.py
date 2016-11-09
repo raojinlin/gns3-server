@@ -530,7 +530,7 @@ class Node:
         elif self._node_type == "dynamips":
             self._ports = DynamipsPortFactory(self._properties)
             return
-        elif self._node_type in ("cloud", "nat", "ethernet_switch", "ethernet_hub"):
+        elif self._node_type in ("cloud", "nat", "host_only", "ethernet_switch", "ethernet_hub"):
             port_number = 0
             for port in self._properties["ports_mapping"]:
                 self._ports.append(PortFactory(port["name"], 0, 0, port_number, "ethernet"))

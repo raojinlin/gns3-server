@@ -19,6 +19,7 @@
 from ..error import NodeError
 from .nodes.cloud import Cloud
 from .nodes.nat import Nat
+from .nodes.host_only import HostOnly
 from .nodes.ethernet_hub import EthernetHub
 from .nodes.ethernet_switch import EthernetSwitch
 
@@ -27,6 +28,7 @@ log = logging.getLogger(__name__)
 
 BUILTIN_NODES = {'cloud': Cloud,
                  'nat': Nat,
+                 'host_only': HostOnly,
                  'ethernet_hub': EthernetHub,
                  'ethernet_switch': EthernetSwitch}
 

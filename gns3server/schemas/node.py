@@ -22,6 +22,7 @@ NODE_TYPE_SCHEMA = {
     "enum": [
         "cloud",
         "nat",
+        "host_only",
         "ethernet_hub",
         "ethernet_switch",
         "frame_relay_switch",

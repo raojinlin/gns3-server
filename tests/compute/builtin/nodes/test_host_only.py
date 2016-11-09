@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python
 #
 # Copyright (C) 2016 GNS3 Technologies Inc.
 #
@@ -15,32 +15,27 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""
-Builtin nodes server module.
-"""
+import uuid
+import pytest
+from unittest.mock import MagicMock
+from tests.utils import asyncio_patch
+
+from gns3server.compute.builtin.nodes.host_only import HostOnly
 
 
-from ..base_manager import BaseManager
-from .builtin_node_factory import BuiltinNodeFactory, BUILTIN_NODES
-
-import logging
-log = logging.getLogger(__name__)
-
-
-class Builtin(BaseManager):
-
-    _NODE_CLASS = BuiltinNodeFactory
-
-    def __init__(self):
-
-        super().__init__()
-
-    @classmethod
-    def node_types(cls):
-        """
-        :returns: List of node type supported by this class and computer
-        """
-        types = ['host_only', 'cloud', 'ethernet_hub', 'ethernet_switch']
-        if BUILTIN_NODES['nat'].is_supported():
-            types.append('nat')
-        return types
+def test_json(on_gns3vm, project):
+    host_only = HostOnly("host_only1", str(uuid.uuid4()), project, MagicMock())
+    assert host_only.__json__() == {
+        "name": "host_only1",
+        "node_id": host_only.id,
+        "project_id": project.id,
+        "status": "started",
+        "ports_mapping": [
+            {
+                'interface': 'virbr0',
+                'name': 'host0',
+                'port_number': 0,
+                'type': 'ethernet'
+            }
+        ]
+    }
