@@ -346,12 +346,27 @@ def test_start(node, compute, project, async_run):
     compute.post.assert_called_with("/projects/{}/vpcs/nodes/{}/start".format(node.project.id, node.id), timeout=240)
 
 
+def test_start_iou(compute, project, async_run, controller):
+    node = Node(project, compute, "demo",
+                node_id=str(uuid.uuid4()),
+                node_type="iou")
+    compute.post = AsyncioMagicMock()
+
+    # Without licence configured it should raise an error
+    with pytest.raises(aiohttp.web.HTTPConflict):
+        async_run(node.start())
+
+    controller.settings["IOU"] = {"iourc_content": "aa"}
+    async_run(node.start())
+    compute.post.assert_called_with("/projects/{}/iou/nodes/{}/start".format(node.project.id, node.id), timeout=240, data={"iourc_content": "aa"})
+
+
 def test_stop(node, compute, project, async_run):
 
     compute.post = AsyncioMagicMock()
 
     async_run(node.stop())
-    compute.post.assert_called_with("/projects/{}/vpcs/nodes/{}/stop".format(node.project.id, node.id), timeout=240)
+    compute.post.assert_called_with("/projects/{}/vpcs/nodes/{}/stop".format(node.project.id, node.id), timeout=240, dont_connect=True)
 
 
 def test_suspend(node, compute, project, async_run):
@@ -459,3 +474,14 @@ def test_get_port(node):
     assert port.adapter_number == 1
     with pytest.raises(aiohttp.web.HTTPNotFound):
         port = node.get_port(42, 0)
+
+
+def test_parse_node_response(node, async_run):
+    """
+    When a node is updated we notify the links connected to it
+    """
+    link = MagicMock()
+    link.node_updated = AsyncioMagicMock()
+    node.add_link(link)
+    async_run(node.parse_node_response({"status": "started"}))
+    assert link.node_updated.called

@@ -34,7 +34,6 @@ import time
 import atexit
 
 from .route import Route
-from .request_handler import RequestHandler
 from ..config import Config
 from ..compute import MODULES
 from ..compute.port_manager import PortManager
@@ -79,8 +78,9 @@ class WebServer:
 
     def _run_application(self, handler, ssl_context=None):
         try:
-            self._server = self._loop.run_until_complete(self._loop.create_server(handler, self._host, self._port, ssl=ssl_context))
-        except OSError as e:
+            srv = self._loop.create_server(handler, self._host, self._port, ssl=ssl_context)
+            self._server, startup_res = self._loop.run_until_complete(asyncio.gather(srv, self._app.startup(), loop=self._loop))
+        except (OSError, asyncio.CancelledError) as e:
             log.critical("Could not start the server: {}".format(e))
             return False
         return True
@@ -249,10 +249,22 @@ class WebServer:
                 time.sleep(1)  # this is to prevent too many request to slow down the server
         log.debug("UDP server discovery stopped")
 
+    @asyncio.coroutine
+    def _on_startup(self, *args):
+        """
+        Called when the HTTP server start
+        """
+        yield from Controller.instance().start()
+
     def run(self):
         """
         Starts the server.
         """
+
+        server_logger = logging.getLogger('aiohttp.server')
+        # In debug mode we don't use the standard request log but a more complete in response.py
+        if log.getEffectiveLevel() == logging.DEBUG:
+            server_logger.setLevel(logging.CRITICAL)
 
         logger = logging.getLogger("asyncio")
         logger.setLevel(logging.ERROR)
@@ -284,6 +296,9 @@ class WebServer:
             log.debug("ENV %s=%s", key, val)
 
         self._app = aiohttp.web.Application()
+        # Background task started with the server
+        self._app.on_startup.append(self._on_startup)
+
         # Allow CORS for this domains
         cors = aiohttp_cors.setup(self._app, defaults={
             # Default web server for web gui dev
@@ -303,15 +318,14 @@ class WebServer:
             m.port_manager = PortManager.instance()
 
         log.info("Starting server on {}:{}".format(self._host, self._port))
-        self._handler = self._app.make_handler(handler=RequestHandler)
+
+        self._handler = self._app.make_handler()
         if self._run_application(self._handler, ssl_context) is False:
             self._loop.stop()
             return
 
         self._signal_handling()
         self._exit_handling()
-
-        controller_start = asyncio.async(Controller.instance().start())
 
         if server_config.getboolean("shell"):
             asyncio.async(self.start_shell())

@@ -78,6 +78,7 @@ class Project:
         self._status = status
         self._scene_height = scene_height
         self._scene_width = scene_width
+        self._loading = False
 
         # Disallow overwrite of existing project
         if project_id is None and path is not None:
@@ -540,7 +541,7 @@ class Project:
         yield from self.stop_all()
         for compute in self._project_created_on_compute:
             try:
-                yield from compute.post("/projects/{}/close".format(self._id))
+                yield from compute.post("/projects/{}/close".format(self._id), dont_connect=True)
             # We don't care if a compute is down at this step
             except (ComputeError, aiohttp.web.HTTPError, aiohttp.ClientResponseError, TimeoutError):
                 pass
@@ -572,9 +573,10 @@ class Project:
 
     @asyncio.coroutine
     def delete(self):
-        if self._status == "opened":
-            yield from self.close()
+        if self._status != "opened":
+            yield from self.open()
         yield from self.delete_on_computes()
+        yield from self.close()
         try:
             shutil.rmtree(self.path)
         except OSError as e:
@@ -609,7 +611,7 @@ class Project:
     def _topology_file(self):
         return os.path.join(self.path, self._filename)
 
-    @asyncio.coroutine
+    @locked_coroutine
     def open(self):
         """
         Load topology elements
@@ -618,12 +620,17 @@ class Project:
             return
 
         self.reset()
+        self._loading = True
         self._status = "opened"
 
         path = self._topology_file()
         if not os.path.exists(path):
+            self._loading = False
             return
-        shutil.copy(path, path + ".backup")
+        try:
+            shutil.copy(path, path + ".backup")
+        except OSError:
+            pass
         try:
             topology = load_topology(path)["topology"]
             for compute in topology.get("computes", []):
@@ -649,14 +656,28 @@ class Project:
                 # We don't care if a compute is down at this step
                 except (ComputeError, aiohttp.web.HTTPNotFound, aiohttp.web.HTTPConflict):
                     pass
-            shutil.copy(path + ".backup", path)
+            if os.path.exists(path + ".backup"):
+                shutil.copy(path + ".backup", path)
             self._status = "closed"
+            self._loading = False
             raise e
-        os.remove(path + ".backup")
+        try:
+            os.remove(path + ".backup")
+        except OSError:
+            pass
 
+        self._loading = False
         # Should we start the nodes when project is open
         if self._auto_start:
             yield from self.start_all()
+
+    @asyncio.coroutine
+    def wait_loaded(self):
+        """
+        Wait until the project finish loading
+        """
+        while self._loading:
+            yield from asyncio.sleep(0.5)
 
     @asyncio.coroutine
     def duplicate(self, name=None, location=None):

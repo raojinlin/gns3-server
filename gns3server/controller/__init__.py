@@ -121,23 +121,26 @@ class Controller:
         """
         Reload the controller configuration from disk
         """
-
-        if not os.path.exists(self._config_file):
-            yield from self._import_gns3_gui_conf()
-            self.save()
         try:
+            if not os.path.exists(self._config_file):
+                yield from self._import_gns3_gui_conf()
+                self.save()
             with open(self._config_file) as f:
                 data = json.load(f)
-        except OSError as e:
+        except (OSError, ValueError) as e:
             log.critical("Cannot load %s: %s", self._config_file, str(e))
             return
+
         if "settings" in data:
             self._settings = data["settings"]
         if "gns3vm" in data:
             self.gns3vm.settings = data["gns3vm"]
 
         for c in data["computes"]:
-            yield from self.add_compute(**c)
+            try:
+                yield from self.add_compute(**c)
+            except aiohttp.web_exceptions.HTTPConflict:
+                pass  # Skip not available servers at loading
 
     @asyncio.coroutine
     def load_projects(self):
@@ -155,7 +158,7 @@ class Controller:
                         if file.endswith(".gns3"):
                             try:
                                 yield from self.load_project(os.path.join(project_dir, file), load=False)
-                            except aiohttp.web_exceptions.HTTPConflict:
+                            except (aiohttp.web_exceptions.HTTPConflict, NotImplementedError):
                                 pass  # Skip not compatible projects
         except OSError as e:
             log.error(str(e))
@@ -268,18 +271,26 @@ class Controller:
             return self._computes[compute_id]
 
     @asyncio.coroutine
+    def close_compute_projects(self, compute):
+        """
+        Close projects running on a compute
+        """
+        for project in self._projects.values():
+            if compute in project.computes:
+                yield from project.close()
+
+    @asyncio.coroutine
     def delete_compute(self, compute_id):
         """
         Delete a compute node. Project using this compute will be close
 
         :param compute_id: Compute server identifier
         """
-        compute = self.get_compute(compute_id)
-
-        for project in self._projects.values():
-            if compute in project.computes:
-                yield from project.close()
-
+        try:
+            compute = self.get_compute(compute_id)
+        except aiohttp.web.HTTPNotFound:
+            return
+        yield from self.close_compute_projects(compute)
         yield from compute.close()
         del self._computes[compute_id]
         self.save()
@@ -338,12 +349,23 @@ class Controller:
 
     def get_project(self, project_id):
         """
-        Returns a compute server or raise a 404 error.
+        Returns a project or raise a 404 error.
         """
         try:
             return self._projects[project_id]
         except KeyError:
             raise aiohttp.web.HTTPNotFound(text="Project ID {} doesn't exist".format(project_id))
+
+    @asyncio.coroutine
+    def get_loaded_project(self, project_id):
+        """
+        Returns a project or raise a 404 error.
+
+        If project is not finished to load wait for it
+        """
+        project = self.get_project(project_id)
+        yield from project.wait_loaded()
+        return project
 
     def remove_project(self, project):
         del self._projects[project.id]

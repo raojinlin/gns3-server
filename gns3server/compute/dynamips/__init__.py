@@ -43,8 +43,7 @@ from ..port_manager import PortManager
 from .dynamips_error import DynamipsError
 from .hypervisor import Hypervisor
 from .nodes.router import Router
-from .dynamips_vm_factory import DynamipsVMFactory
-from .dynamips_device_factory import DynamipsDeviceFactory
+from .dynamips_factory import DynamipsFactory
 
 # NIOs
 from .nios.nio_udp import NIOUDP
@@ -112,9 +111,8 @@ PLATFORMS_DEFAULT_RAM = {"c1700": 160,
 
 class Dynamips(BaseManager):
 
-    _NODE_CLASS = DynamipsVMFactory
+    _NODE_CLASS = DynamipsFactory
     _NODE_TYPE = "dynamips"
-    _DEVICE_CLASS = DynamipsDeviceFactory
     _ghost_ios_lock = None
 
     def __init__(self):
@@ -249,73 +247,6 @@ class Dynamips(BaseManager):
         """
 
         return self._dynamips_path
-
-    @asyncio.coroutine
-    def create_device(self, name, project_id, node_id, device_type, *args, **kwargs):
-        """
-        Create a new Dynamips device.
-
-        :param name: Device name
-        :param project_id: Project identifier
-        :param node_id: Node identifier
-        """
-
-        project = ProjectManager.instance().get_project(project_id)
-        if node_id and isinstance(node_id, int):
-            with (yield from BaseManager._convert_lock):
-                node_id = yield from self.convert_old_project(project, node_id, name)
-
-        if not node_id:
-            node_id = str(uuid4())
-
-        device = self._DEVICE_CLASS(name, node_id, project, self, device_type, *args, **kwargs)
-        yield from device.create()
-        self._devices[device.id] = device
-        return device
-
-    def get_device(self, node_id, project_id=None):
-        """
-        Returns a device instance.
-
-        :param node_id: Node identifier
-        :param project_id: Project identifier
-
-        :returns: Device instance
-        """
-
-        if project_id:
-            # check the project_id exists
-            project = ProjectManager.instance().get_project(project_id)
-
-        try:
-            UUID(node_id, version=4)
-        except ValueError:
-            raise aiohttp.web.HTTPBadRequest(text="Node ID {} is not a valid UUID".format(node_id))
-
-        if node_id not in self._devices:
-            raise aiohttp.web.HTTPNotFound(text="Node ID {} doesn't exist".format(node_id))
-
-        device = self._devices[node_id]
-        if project_id:
-            if device.project.id != project.id:
-                raise aiohttp.web.HTTPNotFound(text="Project ID {} doesn't belong to device {}".format(project_id, device.name))
-
-        return device
-
-    @asyncio.coroutine
-    def delete_device(self, node_id):
-        """
-        Delete a device
-
-        :param node_id: Node identifier
-
-        :returns: Device instance
-        """
-
-        device = self.get_device(node_id)
-        yield from device.delete()
-        del self._devices[device.id]
-        return device
 
     def find_dynamips(self):
 
@@ -678,44 +609,3 @@ class Dynamips(BaseManager):
             if was_auto_started:
                 yield from vm.stop()
         return validated_idlepc
-
-    def get_images_directory(self):
-        """
-        Return the full path of the images directory on disk
-        """
-        return os.path.join(os.path.expanduser(self.config.get_section_config("Server").get("images_path", "~/GNS3/images")), "IOS")
-
-    @asyncio.coroutine
-    def list_images(self):
-        """
-        Return the list of available IOS images.
-
-        :returns: Array of hash
-        """
-
-        image_dir = self.get_images_directory()
-        if not os.path.exists(image_dir):
-            return []
-        try:
-            files = os.listdir(image_dir)
-        except OSError as e:
-            raise DynamipsError("Can not list {}: {}".format(image_dir, str(e)))
-        files.sort()
-        images = []
-        for filename in files:
-            if filename[0] != "." and not filename.endswith(".md5sum"):
-                try:
-                    path = os.path.join(image_dir, filename)
-                    with open(path, "rb") as f:
-                        # read the first 7 bytes of the file.
-                        elf_header_start = f.read(7)
-                except OSError as e:
-                    continue
-                # valid IOS images must start with the ELF magic number, be 32-bit, big endian and have an ELF version of 1
-                if elf_header_start == b'\x7fELF\x01\x02\x01':
-                    images.append({"filename": filename,
-                                   "path": os.path.relpath(path, image_dir),
-                                   "md5sum": md5sum(path),
-                                   "filesize": os.stat(path).st_size
-                                   })
-        return images

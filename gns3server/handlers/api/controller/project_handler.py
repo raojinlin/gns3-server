@@ -284,24 +284,28 @@ class ProjectHandler:
     def export_project(request, response):
 
         controller = Controller.instance()
-        project = controller.get_project(request.match_info["project_id"])
+        project = yield from controller.get_loaded_project(request.match_info["project_id"])
 
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            datas = yield from export_project(project, tmp_dir, include_images=bool(request.get("include_images", "0")))
-            # We need to do that now because export could failed and raise an HTTP error
-            # that why response start need to be the later possible
-            response.content_type = 'application/gns3project'
-            response.headers['CONTENT-DISPOSITION'] = 'attachment; filename="{}.gns3project"'.format(project.name)
-            response.enable_chunked_encoding()
-            # Very important: do not send a content length otherwise QT closes the connection (curl can consume the feed)
-            response.content_length = None
-            response.start(request)
+        try:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                datas = yield from export_project(project, tmp_dir, include_images=bool(request.get("include_images", "0")))
+                # We need to do that now because export could failed and raise an HTTP error
+                # that why response start need to be the later possible
+                response.content_type = 'application/gns3project'
+                response.headers['CONTENT-DISPOSITION'] = 'attachment; filename="{}.gns3project"'.format(project.name)
+                response.enable_chunked_encoding()
+                # Very important: do not send a content length otherwise QT closes the connection (curl can consume the feed)
+                response.content_length = None
+                response.start(request)
 
-            for data in datas:
-                response.write(data)
-                yield from response.drain()
+                for data in datas:
+                    response.write(data)
+                    yield from response.drain()
 
-            yield from response.write_eof()
+                yield from response.write_eof()
+        # Will be raise if you have no space left or permission issue on your temporary directory
+        except OSError as e:
+            raise aiohttp.web.HTTPNotFound(text="Can't export project: {}".format(str(e)))
 
     @Route.post(
         r"/projects/{project_id}/import",
@@ -360,7 +364,7 @@ class ProjectHandler:
     def duplicate(request, response):
 
         controller = Controller.instance()
-        project = controller.get_project(request.match_info["project_id"])
+        project = yield from controller.get_loaded_project(request.match_info["project_id"])
 
         if request.json.get("path"):
             config = Config.instance()
@@ -390,7 +394,7 @@ class ProjectHandler:
     def get_file(request, response):
 
         controller = Controller.instance()
-        project = controller.get_project(request.match_info["project_id"])
+        project = yield from controller.get_loaded_project(request.match_info["project_id"])
         path = request.match_info["path"]
         path = os.path.normpath(path)
 
@@ -434,9 +438,9 @@ class ProjectHandler:
     def write_file(request, response):
 
         controller = Controller.instance()
-        project = controller.get_project(request.match_info["project_id"])
+        project = yield from controller.get_loaded_project(request.match_info["project_id"])
         path = request.match_info["path"]
-        path = os.path.normpath(path)
+        path = os.path.normpath(path).strip("/")
 
         # Raise error if user try to escape
         if path[0] == ".":
@@ -452,8 +456,9 @@ class ProjectHandler:
                     if not packet:
                         break
                     f.write(packet)
-
         except FileNotFoundError:
             raise aiohttp.web.HTTPNotFound()
         except PermissionError:
             raise aiohttp.web.HTTPForbidden()
+        except OSError as e:
+            raise aiohttp.web.HTTPConflict(text=str(e))

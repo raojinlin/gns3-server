@@ -27,6 +27,7 @@ import asyncio
 import subprocess
 import logging
 import codecs
+import shlex
 
 from collections import OrderedDict
 from gns3server.utils.interfaces import interfaces
@@ -358,15 +359,21 @@ class VMware(BaseManager):
 
     @asyncio.coroutine
     def execute(self, subcommand, args, timeout=120, log_level=logging.INFO):
-        try:
-            return (yield from self._execute(subcommand, args, timeout=timeout, log_level=log_level))
-        except VMwareError as e:
-            # We can fail to detect that it's VMware player instead of Workstation (due to marketing change Player is now Player Workstation)
-            if self.host_type == "ws" and "VIX_SERVICEPROVIDER_VMWARE_WORKSTATION" in str(e):
-                self._host_type = "player"
+        trial = 2
+
+        while True:
+            try:
                 return (yield from self._execute(subcommand, args, timeout=timeout, log_level=log_level))
-            else:
-                raise e
+            except VMwareError as e:
+                # We can fail to detect that it's VMware player instead of Workstation (due to marketing change Player is now Player Workstation)
+                if self.host_type == "ws" and "VIX_SERVICEPROVIDER_VMWARE_WORKSTATION" in str(e):
+                    self._host_type = "player"
+                    return (yield from self._execute(subcommand, args, timeout=timeout, log_level=log_level))
+                else:
+                    if trial <= 0:
+                        raise e
+                    trial -= 1
+                    yield from asyncio.sleep(0.5)
 
     @asyncio.coroutine
     def _execute(self, subcommand, args, timeout=120, log_level=logging.INFO):
@@ -379,7 +386,7 @@ class VMware(BaseManager):
 
         command = [vmrun_path, "-T", self.host_type, subcommand]
         command.extend(args)
-        command_string = " ".join(command)
+        command_string = " ".join([shlex.quote(c) for c in command])
         log.log(log_level, "Executing vmrun with command: {}".format(command_string))
         try:
             process = yield from asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
@@ -389,12 +396,12 @@ class VMware(BaseManager):
         try:
             stdout_data, _ = yield from asyncio.wait_for(process.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
-            raise VMwareError("vmrun has timed out after {} seconds!\nTry to run {} in a terminal to see more informations.".format(timeout, command_string))
+            raise VMwareError("vmrun has timed out after {} seconds!\nTry to run {} in a terminal to see more informations.\nAnd make sure GNS3 and VMware run under the same user.".format(timeout, command_string))
 
         if process.returncode:
             # vmrun print errors on stdout
             vmrun_error = stdout_data.decode("utf-8", errors="ignore")
-            raise VMwareError("vmrun has returned an error: {}\nTry to run {} in a terminal to see more informations.".format(vmrun_error, command_string))
+            raise VMwareError("vmrun has returned an error: {}\nTry to run {} in a terminal to see more informations.\nAnd make sure GNS3 and VMware run under the same user.".format(vmrun_error, command_string))
 
         return stdout_data.decode("utf-8", errors="ignore").splitlines()
 

@@ -56,11 +56,6 @@ class VMwareVM(BaseNode):
         self._started = False
         self._closed = False
 
-        if not self.linked_clone:
-            for node in self.manager.nodes:
-                if node.vmx_path == vmx_path:
-                    raise VMwareError("Sorry a node without the linked clone setting enabled can only be used once on your server. {} is already used by {}".format(vmx_path, node.name))
-
         # VMware VM settings
         self._headless = False
         self._vmx_path = vmx_path
@@ -134,10 +129,39 @@ class VMwareVM(BaseNode):
         return False
 
     @asyncio.coroutine
+    def _check_duplicate_linked_clone(self):
+        """
+        Without linked clone two VM using the same image can't run
+        at the same time.
+
+        To avoid issue like false detection when a project close
+        and another open we try multiple times.
+        """
+        trial = 0
+
+        while True:
+            found = False
+            for node in self.manager.nodes:
+                if node != self and node.vmx_path == self._vmx_path:
+                    found = True
+                    if node.project != self.project:
+                        if trial >= 30:
+                            raise VMwareError("Sorry a node without the linked clone setting enabled can only be used once on your server.\n{} is already used by {} in project {}".format(self.vmx_path, node.name, self.project.name))
+                    else:
+                        if trial >= 5:
+                            raise VMwareError("Sorry a node without the linked clone setting enabled can only be used once on your server.\n{} is already used by {} in this project".format(self.vmx_path, node.name))
+            if not found:
+                return
+            trial += 1
+            yield from asyncio.sleep(1)
+
+    @asyncio.coroutine
     def create(self):
         """
         Creates this VM and handle linked clones.
         """
+        if not self.linked_clone:
+            yield from self._check_duplicate_linked_clone()
 
         yield from self.manager.check_vmrun_version()
         if self.linked_clone and not os.path.exists(os.path.join(self.working_dir, os.path.basename(self._vmx_path))):
@@ -386,6 +410,9 @@ class VMwareVM(BaseNode):
         Starts this VMware VM.
         """
 
+        if self.status == "started":
+            return
+
         if (yield from self.is_running()):
             raise VMwareError("The VM is already running in VMware")
 
@@ -433,7 +460,7 @@ class VMwareVM(BaseNode):
         """
 
         self._hw_virtualization = False
-        self._stop_remote_console()
+        yield from self._stop_remote_console()
         yield from self._stop_ubridge()
 
         try:
@@ -468,6 +495,7 @@ class VMwareVM(BaseNode):
                     self._vmx_pairs["ethernet{}.startconnected".format(adapter_number)] = "TRUE"
             self._write_vmx_file()
 
+        yield from super().stop()
         log.info("VMware VM '{name}' [{id}] stopped".format(name=self.name, id=self.id))
 
     @asyncio.coroutine
@@ -772,16 +800,23 @@ class VMwareVM(BaseNode):
         """
         Starts remote console support for this VM.
         """
-        pipe = yield from asyncio_open_serial(self._get_pipe_name())
-        server = AsyncioTelnetServer(reader=pipe, writer=pipe, binary=True, echo=True)
+        self._remote_pipe = yield from asyncio_open_serial(self._get_pipe_name())
+        server = AsyncioTelnetServer(reader=self._remote_pipe,
+                                     writer=self._remote_pipe,
+                                     binary=True,
+                                     echo=True)
         self._telnet_server = yield from asyncio.start_server(server.run, '127.0.0.1', self.console)
 
+    @asyncio.coroutine
     def _stop_remote_console(self):
         """
         Stops remote console support for this VM.
         """
         if self._telnet_server:
             self._telnet_server.close()
+            yield from self._telnet_server.wait_closed()
+            self._remote_pipe.close()
+            self._telnet_server = None
 
     @asyncio.coroutine
     def start_capture(self, adapter_number, output_file):

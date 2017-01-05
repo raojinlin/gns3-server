@@ -66,11 +66,6 @@ class VirtualBoxVM(BaseNode):
         self._ethernet_adapters = {}
         self._headless = False
         self._acpi_shutdown = False
-        if not self.linked_clone:
-            for node in self.manager.nodes:
-                if node.vmname == vmname:
-                    raise VirtualBoxError("Sorry a node without the linked clone setting enabled can only be used once on your server. {} is already used by {}".format(vmname, node.name))
-
         self._vmname = vmname
         self._use_any_adapter = False
         self._ram = 0
@@ -151,7 +146,36 @@ class VirtualBoxVM(BaseNode):
         yield from self.manager.execute("modifyvm", [self._vmname] + args)
 
     @asyncio.coroutine
+    def _check_duplicate_linked_clone(self):
+        """
+        Without linked clone two VM using the same image can't run
+        at the same time.
+
+        To avoid issue like false detection when a project close
+        and another open we try multiple times.
+        """
+        trial = 0
+
+        while True:
+            found = False
+            for node in self.manager.nodes:
+                if node != self and node.vmname == self.vmname:
+                    found = True
+                    if node.project != self.project:
+                        if trial >= 30:
+                            raise VirtualBoxError("Sorry a node without the linked clone setting enabled can only be used once on your server.\n{} is already used by {} in project {}".format(self.vmname, node.name, self.project.name))
+                    else:
+                        if trial >= 5:
+                            raise VirtualBoxError("Sorry a node without the linked clone setting enabled can only be used once on your server.\n{} is already used by {} in this project".format(self.vmname, node.name))
+            if not found:
+                return
+            trial += 1
+            yield from asyncio.sleep(1)
+
+    @asyncio.coroutine
     def create(self):
+        if not self.linked_clone:
+            yield from self._check_duplicate_linked_clone()
 
         yield from self._get_system_properties()
         if "API version" not in self._system_properties:
@@ -206,6 +230,9 @@ class VirtualBoxVM(BaseNode):
         Starts this VirtualBox VM.
         """
 
+        if self.status == "started":
+            return
+
         # resume the VM if it is paused
         vm_state = yield from self._get_vm_state()
         if vm_state == "paused":
@@ -257,7 +284,7 @@ class VirtualBoxVM(BaseNode):
 
         self._hw_virtualization = False
         yield from self._stop_ubridge()
-        self._stop_remote_console()
+        yield from self._stop_remote_console()
         vm_state = yield from self._get_vm_state()
         if vm_state == "running" or vm_state == "paused" or vm_state == "stuck":
             if self.acpi_shutdown:
@@ -285,6 +312,7 @@ class VirtualBoxVM(BaseNode):
                     yield from self._modify_vm("--nictrace{} off".format(adapter_number + 1))
                     yield from self._modify_vm("--cableconnected{} off".format(adapter_number + 1))
                     yield from self._modify_vm("--nic{} null".format(adapter_number + 1))
+        yield from super().stop()
 
     @asyncio.coroutine
     def suspend(self):
@@ -816,6 +844,9 @@ class VirtualBoxVM(BaseNode):
                     yield from self._modify_vm("--nictrace{} on".format(adapter_number + 1))
                     yield from self._modify_vm('--nictracefile{} "{}"'.format(adapter_number + 1, nio.pcap_output_file))
 
+                if self.use_ubridge and not self._ethernet_adapters[adapter_number].get_nio(0):
+                    yield from self._modify_vm("--cableconnected{} off".format(adapter_number + 1))
+
         for adapter_number in range(self._adapters, self._maximum_adapters):
             log.debug("disabling remaining adapter {}".format(adapter_number))
             yield from self._modify_vm("--nic{} none".format(adapter_number + 1))
@@ -871,16 +902,23 @@ class VirtualBoxVM(BaseNode):
         """
         Starts remote console support for this VM.
         """
-        pipe = yield from asyncio_open_serial(self._get_pipe_name())
-        server = AsyncioTelnetServer(reader=pipe, writer=pipe, binary=True, echo=True)
+        self._remote_pipe = yield from asyncio_open_serial(self._get_pipe_name())
+        server = AsyncioTelnetServer(reader=self._remote_pipe,
+                                     writer=self._remote_pipe,
+                                     binary=True,
+                                     echo=True)
         self._telnet_server = yield from asyncio.start_server(server.run, '127.0.0.1', self.console)
 
+    @asyncio.coroutine
     def _stop_remote_console(self):
         """
         Stops remote console support for this VM.
         """
         if self._telnet_server:
             self._telnet_server.close()
+            yield from self._telnet_server.wait_closed()
+            self._remote_pipe.close()
+            self._telnet_server = None
 
     @asyncio.coroutine
     def adapter_add_nio_binding(self, adapter_number, nio):
@@ -897,10 +935,11 @@ class VirtualBoxVM(BaseNode):
             raise VirtualBoxError("Adapter {adapter_number} doesn't exist on VirtualBox VM '{name}'".format(name=self.name,
                                                                                                             adapter_number=adapter_number))
 
-        if self.ubridge and self.ubridge.is_running():
+        if self.ubridge:
             yield from self._add_ubridge_udp_connection("VBOX-{}-{}".format(self._id, adapter_number),
                                                         self._local_udp_tunnels[adapter_number][1],
                                                         nio)
+            yield from self._control_vm("setlinkstate{} on".format(adapter_number + 1))
         else:
             vm_state = yield from self._get_vm_state()
             if vm_state == "running":
@@ -941,8 +980,9 @@ class VirtualBoxVM(BaseNode):
             raise VirtualBoxError("Adapter {adapter_number} doesn't exist on VirtualBox VM '{name}'".format(name=self.name,
                                                                                                             adapter_number=adapter_number))
 
-        if self.ubridge and self.ubridge.is_running():
+        if self.ubridge:
             yield from self._ubridge_send("bridge delete {name}".format(name="VBOX-{}-{}".format(self._id, adapter_number)))
+            yield from self._control_vm("setlinkstate{} off".format(adapter_number + 1))
         else:
             vm_state = yield from self._get_vm_state()
             if vm_state == "running":
@@ -991,7 +1031,7 @@ class VirtualBoxVM(BaseNode):
 
         nio.startPacketCapture(output_file)
 
-        if self.ubridge and self.ubridge.is_running():
+        if self.ubridge:
             yield from self._ubridge_send('bridge start_capture {name} "{output_file}"'.format(name="VBOX-{}-{}".format(self._id, adapter_number),
                                                                                                output_file=output_file))
 
@@ -1019,7 +1059,7 @@ class VirtualBoxVM(BaseNode):
 
         nio.stopPacketCapture()
 
-        if self.ubridge and self.ubridge.is_running():
+        if self.ubridge:
             yield from self._ubridge_send('bridge stop_capture {name}'.format(name="VBOX-{}-{}".format(self._id, adapter_number)))
 
         log.info("VirtualBox VM '{name}' [{id}]: stopping packet capture on adapter {adapter_number}".format(name=self.name,

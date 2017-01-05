@@ -191,7 +191,7 @@ class GNS3VM:
                 yield from self.start()
         else:
             # When user fix something on his system and try again
-            if not self.current_engine().running and self.enable:
+            if self.enable and not self.current_engine().running:
                 yield from self.start()
 
     def _get_engine(self, engine):
@@ -240,6 +240,7 @@ class GNS3VM:
                                                         name="GNS3 VM ({})".format(self.current_engine().vmname),
                                                         host=None,
                                                         force=True)
+                log.error("Can't start the GNS3 VM: {}", str(e))
 
     @asyncio.coroutine
     def exit_vm(self):
@@ -272,6 +273,7 @@ class GNS3VM:
                 yield from engine.start()
             except Exception as e:
                 yield from self._controller.delete_compute("vm")
+                log.error("Can't start the GNS3 VM: {}", str(e))
                 raise e
             yield from compute.update(name="GNS3 VM ({})".format(engine.vmname),
                                       protocol=self.protocol,

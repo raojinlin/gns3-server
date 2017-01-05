@@ -99,10 +99,7 @@ class BaseNode:
                 self._console = self._manager.port_manager.get_free_tcp_port(self._project)
 
         if self._wrap_console:
-            if console_type == "vnc":
-                self._wrap_console = False  # We don't support multiple client connected to the same VNC
-            else:
-                self._internal_console_port = self._manager.port_manager.get_free_tcp_port(self._project)
+            self._internal_console_port = self._manager.port_manager.get_free_tcp_port(self._project)
 
         if self._aux is None and allocate_aux:
             self._aux = self._manager.port_manager.get_free_tcp_port(self._project)
@@ -331,9 +328,18 @@ class BaseNode:
         Start a telnet proxy for the console allowing multiple client
         connected at the same time
         """
-        if not self._wrap_console:
+        if not self._wrap_console or self._console_type != "telnet":
             return
-        (reader, writer) = yield from asyncio.open_connection(host="127.0.0.1", port=self._internal_console_port)
+        remaining_trial = 60
+        while True:
+            try:
+                (reader, writer) = yield from asyncio.open_connection(host="127.0.0.1", port=self._internal_console_port)
+                break
+            except (OSError, ConnectionRefusedError) as e:
+                if remaining_trial <= 0:
+                    raise e
+            yield from asyncio.sleep(0.1)
+            remaining_trial -= 1
         yield from AsyncioTelnetServer.write_client_intro(writer, echo=True)
         server = AsyncioTelnetServer(reader=reader, writer=writer, binary=True, echo=True)
         self._wrapper_telnet_server = yield from asyncio.start_server(server.run, self._manager.port_manager.console_host, self.console)
@@ -472,6 +478,8 @@ class BaseNode:
         :returns: path to uBridge
         """
 
+        if self._ubridge_hypervisor and not self._ubridge_hypervisor.is_running():
+            self._ubridge_hypervisor = None
         return self._ubridge_hypervisor
 
     @ubridge.setter
@@ -518,10 +526,10 @@ class BaseNode:
         """
 
         if self.ubridge_path is None:
-            raise NodeError("uBridge is not available or path doesn't exist")
+            raise NodeError("uBridge is not available, path doesn't exist, or you just installed GNS3 and need to restart your user session to refresh user permissions.")
 
         if not self._manager.has_privileged_access(self.ubridge_path):
-            raise NodeError("uBridge requires root access or capability to interact with network adapters")
+            raise NodeError("uBridge requires root access or the capability to interact with network adapters")
 
         server_config = self._manager.config.get_section_config("Server")
         server_host = server_config.get("host")
@@ -541,6 +549,7 @@ class BaseNode:
         if self._ubridge_hypervisor and self._ubridge_hypervisor.is_running():
             log.info("Stopping uBridge hypervisor {}:{}".format(self._ubridge_hypervisor.host, self._ubridge_hypervisor.port))
             yield from self._ubridge_hypervisor.stop()
+        self._ubridge_hypervisor = None
 
     @asyncio.coroutine
     def _add_ubridge_udp_connection(self, bridge_name, source_nio, destination_nio):
@@ -603,7 +612,7 @@ class BaseNode:
                 yield from self._ubridge_send('bridge add_nio_ethernet {name} "{interface}"'.format(name=bridge_name,
                                                                                                     interface=npf_id))
             else:
-                raise NodeError("Could not find NPF id for VMnet interface {}".format(ethernet_interface))
+                raise NodeError("Could not find NPF id for interface {}".format(ethernet_interface))
 
             if block_host_traffic:
                 if source_mac:

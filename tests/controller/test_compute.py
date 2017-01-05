@@ -355,7 +355,7 @@ def test_images(compute, async_run, images_dir):
         "path": "linux.qcow2",
         "md5sum": "d41d8cd98f00b204e9800998ecf8427e",
         "filesize": 0}]).encode())
-    open(os.path.join(images_dir, "asa.qcow2"), "w+").close()
+    open(os.path.join(images_dir, "QEMU", "asa.qcow2"), "w+").close()
     with asyncio_patch("aiohttp.ClientSession.request", return_value=response) as mock:
         images = async_run(compute.images("qemu"))
         mock.assert_called_with("GET", "https://example.com:84/v2/compute/qemu/images", auth=None, data=None, headers={'content-type': 'application/json'}, chunked=False, timeout=None)
@@ -429,7 +429,7 @@ def test_get_ip_on_same_subnet(controller, async_run):
     assert async_run(compute1.get_ip_on_same_subnet(compute2)) == ("192.168.1.1", "192.168.1.2")
 
     # Case 2 compute2 host is on a different network but a common interface is available
-    compute2 = Compute("compute2", host="192.168.4.2", controller=controller)
+    compute2 = Compute("compute2", host="127.0.0.1", controller=controller)
     compute2._interfaces_cache = [
         {
             "ip_address": "127.0.0.1",

@@ -22,6 +22,7 @@ import uuid
 import shutil
 import zipfile
 import aiohttp
+import platform
 import jsonschema
 
 
@@ -111,7 +112,7 @@ def load_topology(path):
     try:
         with open(path, encoding="utf-8") as f:
             topo = json.load(f)
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
+    except (OSError, UnicodeDecodeError, ValueError) as e:
         raise aiohttp.web.HTTPConflict(text="Could not load topology {}: {}".format(path, str(e)))
     if "revision" not in topo or topo["revision"] < 5:
         # If it's an old GNS3 file we need to convert it
@@ -309,20 +310,23 @@ def _convert_1_3_later(topo, topo_path):
 
     # Create links
     for old_link in topo.get("links", []):
-        nodes = []
-        source_node = {
-            "adapter_number": ports[old_link["source_port_id"]].get("adapter_number", 0),
-            "port_number": ports[old_link["source_port_id"]].get("port_number", 0),
-            "node_id": node_id_to_node_uuid[old_link["source_node_id"]]
-        }
-        nodes.append(source_node)
+        try:
+            nodes = []
+            source_node = {
+                "adapter_number": ports[old_link["source_port_id"]].get("adapter_number", 0),
+                "port_number": ports[old_link["source_port_id"]].get("port_number", 0),
+                "node_id": node_id_to_node_uuid[old_link["source_node_id"]]
+            }
+            nodes.append(source_node)
 
-        destination_node = {
-            "adapter_number": ports[old_link["destination_port_id"]].get("adapter_number", 0),
-            "port_number": ports[old_link["destination_port_id"]].get("port_number", 0),
-            "node_id": node_id_to_node_uuid[old_link["destination_node_id"]]
-        }
-        nodes.append(destination_node)
+            destination_node = {
+                "adapter_number": ports[old_link["destination_port_id"]].get("adapter_number", 0),
+                "port_number": ports[old_link["destination_port_id"]].get("port_number", 0),
+                "node_id": node_id_to_node_uuid[old_link["destination_node_id"]]
+            }
+            nodes.append(destination_node)
+        except KeyError:
+            continue
 
         link = {
             "link_id": str(uuid.uuid4()),
@@ -369,7 +373,7 @@ def _convert_1_3_later(topo, topo_path):
             height=int(font_info[1]) * 2,
             width=int(font_info[1]) * len(note["text"]),
             fill="#" + note["color"][-6:],
-            opacity=round(1.0 / 255 * int(note["color"][:3][-2:], base=16), 2),  # Extract the alpha channel from the hexa version
+            opacity=round(1.0 / 255 * int(note.get("color", "#ffffffff")[:3][-2:], base=16), 2),  # Extract the alpha channel from the hexa version
             family=font_info[0],
             size=int(font_info[1]),
             weight=weight,
@@ -484,15 +488,28 @@ def _create_cloud(node, old_node, icon):
             port_type = "ethernet"
         elif old_port["name"].startswith("nio_tap"):
             port_type = "tap"
+        elif old_port["name"].startswith("nio_udp"):
+            port_type = "udp"
         else:
             raise NotImplementedError("The conversion of cloud with {} is not supported".format(old_port["name"]))
 
-        port = {
-            "interface": old_port["name"].split(":")[1],
-            "name": old_port["name"].split(":")[1],
-            "port_number": len(ports) + 1,
-            "type": port_type
-        }
+        if port_type == "udp":
+            _, lport, rhost, rport = old_port["name"].split(":")
+            port = {
+                "name": "UDP tunnel {}".format(len(ports) + 1),
+                "port_number": len(ports) + 1,
+                "type": port_type,
+                "lport": int(lport),
+                "rhost": rhost,
+                "rport": int(rport)
+            }
+        else:
+            port = {
+                "interface": old_port["name"].split(":")[1],
+                "name": old_port["name"].split(":")[1],
+                "port_number": len(ports) + 1,
+                "type": port_type
+            }
         ports.append(port)
 
     node["properties"]["ports_mapping"] = ports

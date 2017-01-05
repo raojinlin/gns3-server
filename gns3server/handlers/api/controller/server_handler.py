@@ -120,12 +120,16 @@ class ServerHandler:
 
     @Route.post(
         r"/debug",
-        description="Dump debug informations to disk (debug directory in config directory)",
+        description="Dump debug informations to disk (debug directory in config directory). Work only for local server",
         status_codes={
             201: "Writed"
         })
     def debug(request, response):
+
         config = Config.instance()
+        if config.get_section_config("Server").getboolean("local", False) is False:
+            raise HTTPForbidden(text="You can only debug a local server")
+
         debug_dir = os.path.join(config.config_dir, "debug")
         try:
             if os.path.exists(debug_dir):
@@ -145,6 +149,16 @@ class ServerHandler:
         except OSError as e:
             # If something is wrong we log the info to the log and we hope the log will be include correctly to the debug export
             log.error("Could not copy VMware VMX file {}".format(e), exc_info=1)
+
+        for compute in Controller.instance().computes.values():
+            try:
+                r = yield from compute.get("/debug", raw=True)
+                data = r.body.decode("utf-8")
+            except Exception as e:
+                data = str(e)
+            with open(os.path.join(debug_dir, "compute_{}.txt".format(compute.name)), "w+") as f:
+                f.write("Compute ID: {}\n".format(compute.id))
+                f.write(data)
 
         response.set_status(201)
 
@@ -189,4 +203,11 @@ Processus:
                 data += "* {} {}\n".format(psinfo["name"], psinfo["exe"])
             except psutil.NoSuchProcess:
                 pass
+
+        data += "\n\nProjects"
+        for project in Controller.instance().projects.values():
+            data += "\n\nProject name: {}\nProject ID: {}\n".format(project.name, project.id)
+            for link in project.links.values():
+                data += "Link {}: {}".format(link.id, link.debug_link_data)
+
         return data

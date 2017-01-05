@@ -106,3 +106,7 @@ class Bridge(Device):
 
         yield from self._hypervisor.send('nio_bridge remove_nio "{name}" {nio}'.format(name=self._name, nio=nio))
         self._nios.remove(nio)
+
+    @property
+    def hw_virtualization(self):
+        return False

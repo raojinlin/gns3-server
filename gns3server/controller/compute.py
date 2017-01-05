@@ -26,7 +26,8 @@ import os
 import io
 
 from ..utils import parse_version
-from ..utils.images import scan_for_images, md5sum
+from ..utils.images import list_images, md5sum
+from ..utils.asyncio import locked_coroutine
 from ..controller.controller_error import ControllerError
 from ..config import Config
 from ..version import __version__
@@ -106,9 +107,11 @@ class Compute:
         # Cache of interfaces on remote host
         self._interfaces_cache = None
 
+        self._connection_failure = 0
+
     def _session(self):
         if self._http_session is None or self._http_session.closed is True:
-            self._http_session = aiohttp.ClientSession()
+            self._http_session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=None, force_close=True))
         return self._http_session
 
     def __del__(self):
@@ -343,18 +346,21 @@ class Compute:
         return StreamResponse(response)
 
     @asyncio.coroutine
-    def http_query(self, method, path, data=None, **kwargs):
-        if not self._connected:
+    def http_query(self, method, path, data=None, dont_connect=False, **kwargs):
+        """
+        :param dont_connect: If true do not reconnect if not connected
+        """
+        if not self._connected and not dont_connect:
             if self._id == "vm" and not self._controller.gns3vm.running:
                 yield from self._controller.gns3vm.start()
 
             yield from self.connect()
-        if not self._connected:
-            raise aiohttp.web.HTTPConflict(text="Can't connect to {}".format(self._name))
+        if not self._connected and not dont_connect:
+            raise ComputeError("Can't connect to {}".format(self._name))
         response = yield from self._run_http_query(method, path, data=data, **kwargs)
         return response
 
-    @asyncio.coroutine
+    @locked_coroutine
     def connect(self):
         """
         Check if remote server is accessible
@@ -365,8 +371,17 @@ class Compute:
             except ComputeError:
                 # Try to reconnect after 2 seconds if server unavailable only if not during tests (otherwise we create a ressources usage bomb)
                 if not hasattr(sys, "_called_from_test") or not sys._called_from_test:
+                    self._connection_failure += 1
+                    # After 5 failure we close the project using the compute to avoid sync issues
+                    if self._connection_failure == 5:
+                        yield from self._controller.close_compute_projects(self)
                     asyncio.get_event_loop().call_later(2, lambda: asyncio.async(self.connect()))
+
                 return
+            except aiohttp.web.HTTPNotFound:
+                raise aiohttp.web.HTTPConflict(text="The server {} is not a GNS3 server or it's a 1.X server".format(self._id))
+            except aiohttp.web.HTTPUnauthorized:
+                raise aiohttp.web.HTTPConflict(text="Invalid auth for server {} ".format(self._id))
 
             if "version" not in response.json:
                 self._http_session.close()
@@ -378,6 +393,7 @@ class Compute:
 
             self._notifications = asyncio.gather(self._connect_notification())
             self._connected = True
+            self._connection_failure = 0
             self._controller.notification.emit("compute.updated", self.__json__())
 
     @asyncio.coroutine
@@ -407,7 +423,7 @@ class Compute:
                 self._memory_usage_percent = event["memory_usage_percent"]
                 self._controller.notification.emit("compute.updated", self.__json__())
             else:
-                self._controller.notification.dispatch(action, event, compute_id=self.id)
+                yield from self._controller.notification.dispatch(action, event, compute_id=self.id)
         if self._ws:
             yield from self._ws.close()
 
@@ -446,6 +462,8 @@ class Compute:
             elif data is not None:
                 if hasattr(data, '__json__'):
                     data = json.dumps(data.__json__())
+                elif isinstance(data, aiohttp.streams.EmptyStreamReader):
+                    data = None
                 # Stream the request
                 elif isinstance(data, aiohttp.streams.StreamReader) or isinstance(data, bytes):
                     chunked = True
@@ -467,6 +485,8 @@ class Compute:
                     data = json.dumps(data)
         try:
             response = yield from self._session().request(method, url, headers=headers, data=data, auth=self._auth, chunked=chunked, timeout=timeout)
+        except asyncio.TimeoutError as e:
+            raise ComputeError("Timeout error when connecting to {}".format(url))
         except (aiohttp.errors.ClientOSError, aiohttp.errors.ClientRequestError, aiohttp.ClientResponseError) as e:
             raise ComputeError(str(e))
         body = yield from response.read()
@@ -560,16 +580,11 @@ class Compute:
 
         try:
             if type in ["qemu", "dynamips", "iou"]:
-                for path in scan_for_images(type):
-                    image = os.path.basename(path)
-                    if image not in [i['filename'] for i in images]:
-                        images.append({"filename": image,
-                                       "path": image,
-                                       "md5sum": md5sum(path),
-                                       "filesize": os.stat(path).st_size
-                                       })
+                for local_image in list_images(type):
+                    if local_image['filename'] not in [i['filename'] for i in images]:
+                        images.append(local_image)
         except OSError as e:
-            raise aiohttp.web.HTTPConflict(text="Can't scan for images: {}".format(str(e)))
+            raise ComputeError("Can't list images: {}".format(str(e)))
         return images
 
     @asyncio.coroutine
@@ -591,6 +606,10 @@ class Compute:
         """
         if other_compute == self:
             return (self.host_ip, self.host_ip)
+
+        # Perhaps the user has correct network gateway, we trust him
+        if (self.host_ip not in ('0.0.0.0', '127.0.0.1') and other_compute.host_ip not in ('0.0.0.0', '127.0.0.1')):
+            return (self.host_ip, other_compute.host_ip)
 
         this_compute_interfaces = yield from self.interfaces()
         other_compute_interfaces = yield from other_compute.interfaces()
@@ -622,7 +641,4 @@ class Compute:
                 if this_network.overlaps(other_network):
                     return (this_interface["ip_address"], other_interface["ip_address"])
 
-        # Perhaps the user has correct network gateway
-        if (self.host_ip not in ('0.0.0.0', '127.0.0.1') and other_compute.host_ip not in ('0.0.0.0', '127.0.0.1')):
-            return (self.host_ip, other_compute.host_ip)
         raise ValueError("No common subnet for compute {} and {}".format(self.name, other_compute.name))
