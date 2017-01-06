@@ -25,7 +25,6 @@ import re
 import os
 import tempfile
 import json
-import socket
 import asyncio
 import xml.etree.ElementTree as ET
 

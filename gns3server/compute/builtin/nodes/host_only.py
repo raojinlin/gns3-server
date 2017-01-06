@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Copyright (C) 2016 GNS3 Technologies Inc.
+# Copyright (C) 2017 GNS3 Technologies Inc.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -17,10 +17,17 @@
 
 import sys
 import asyncio
+import shutil
 from .cloud import Cloud
 from ...error import NodeError
 
+import logging
+log = logging.getLogger(__name__)
+
+
 import gns3server.utils.interfaces
+from gns3server.utils.runas import runas
+from gns3server.utils.asyncio import wait_run_in_executor
 
 
 class HostOnly(Cloud):
@@ -48,3 +55,26 @@ class HostOnly(Cloud):
             "status": "started",
             "ports_mapping": self.ports_mapping
         }
+
+    @asyncio.coroutine
+    def create(self):
+        """
+        Creates this host-only node.
+        """
+
+        if sys.platform.startswith("win"):
+            gns3loopback = shutil.which("gns3loopback")
+            if gns3loopback is None:
+                raise NodeError("Could not find gns3loopback.exe")
+            yield from self._add_loopback(self, gns3loopback, "Host-Only-{}".format(self.id))
+        super().create()
+        log.info('Host-Only node "{name}" [{id}] has been created'.format(name=self._name, id=self._id))
+
+    @asyncio.coroutine
+    def _add_loopback(self, gns3loopback, name):
+        """
+        Add a Windows loopback adapter.
+        """
+
+        command = [gns3loopback, "--add", name, "10.42.1.1", "255.0.0.0"]
+        yield from wait_run_in_executor(runas, command)
