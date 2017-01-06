@@ -69,7 +69,7 @@ def add_loopback(devcon_path, name, ip_address, netmask):
                     if retcode == 1:
                         print("A reboot is required")
                     elif retcode != 0:
-                        print('Error while configuring IP/Subnet mask on "{}"')
+                        raise SystemExit('Error while configuring IP/Subnet mask on "{}"'.format(name))
 
                     #FIXME: support gateway?
                     #network_config.SetGateways(DefaultIPGateway=[""])
@@ -115,16 +115,16 @@ def main():
     except argparse.ArgumentTypeError as e:
         raise SystemExit(e)
 
-    # devcon is required to install/remove Windows loopback adapters
-    devcon_path = shutil.which("devcon")
-    if not devcon_path:
-        raise SystemExit("Could not find devcon.exe")
-
-    from win32com.shell import shell
-    if not shell.IsUserAnAdmin():
-        raise SystemExit("You must run this script as an administrator")
-
     try:
+        # devcon is required to install/remove Windows loopback adapters
+        devcon_path = shutil.which(r"devcon.exe")
+        if not devcon_path:
+            raise SystemExit("Could not find devcon.exe")
+
+        from win32com.shell import shell
+        if not shell.IsUserAnAdmin():
+            raise SystemExit("You must run this script as an administrator")
+
         if args.add:
             add_loopback(devcon_path, args.add[0], args.add[1], args.add[2])
         if args.remove:

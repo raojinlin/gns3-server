@@ -24,9 +24,7 @@ from ...error import NodeError
 import logging
 log = logging.getLogger(__name__)
 
-
 import gns3server.utils.interfaces
-from gns3server.utils.runas import runas
 from gns3server.utils.asyncio import wait_run_in_executor
 
 
@@ -66,7 +64,7 @@ class HostOnly(Cloud):
             gns3loopback = shutil.which("gns3loopback")
             if gns3loopback is None:
                 raise NodeError("Could not find gns3loopback.exe")
-            yield from self._add_loopback(self, gns3loopback, "Host-Only-{}".format(self.id))
+            yield from self._add_loopback(gns3loopback, "Host-Only-{}".format(self.id))
         super().create()
         log.info('Host-Only node "{name}" [{id}] has been created'.format(name=self._name, id=self._id))
 
@@ -76,5 +74,5 @@ class HostOnly(Cloud):
         Add a Windows loopback adapter.
         """
 
-        command = [gns3loopback, "--add", name, "10.42.1.1", "255.0.0.0"]
-        yield from wait_run_in_executor(runas, command)
+        from gns3server.utils.runas import runas
+        yield from wait_run_in_executor(runas, gns3loopback, '--add "{}" 10.42.1.1 255.0.0.0'.format(name))

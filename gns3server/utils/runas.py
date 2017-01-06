@@ -28,13 +28,11 @@ import logging
 log = logging.getLogger(__name__)
 
 
-def runas(*command, timeout=300):
+def runas(program, params, timeout=300):
     """
     Run a command as an administrator on Windows.
     """
 
-    program = '"%s"' % command[0]
-    params = " ".join(['"%s"' % (x,) for x in command[1:]])
     try:
         process = ShellExecuteEx(nShow=win32con.SW_SHOWNORMAL,
                                  fMask=shellcon.SEE_MASK_NOCLOSEPROCESS,
@@ -42,7 +40,7 @@ def runas(*command, timeout=300):
                                  lpFile=program,
                                  lpParameters=params)
     except pywintypes.error as e:
-        command_string = " ".join(shlex.quote(s) for s in command)
+        command_string = "{} {}".format(program, params)
         log.error('Could not execute command "{}": {}'.format(command_string, e), True)
         return False
 
