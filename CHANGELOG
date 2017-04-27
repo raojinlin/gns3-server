@@ -1,5 +1,205 @@
 # Change Log
 
+## 2.0.0rc4 20/04/2017
+
+* Fix a race condition when handling error at project opening
+* Fix an issue with editing network on windows
+* Fix windows tests
+* Catch timeout error on docker
+* typing is already included in Py >= 3.5 (#979)
+* Fix import of some old topologies
+* Fix AttributeError: 'NoneType' object has no attribute 'returncode'
+* Fix ghost vmware vms
+* Fix required field in schema not use
+* Catch error and log them when we can't write the config
+* Fix bridge 'bridge0' already exist when we have trouble with a container
+* Catch an error at startup when the remote GNS3 VM is not a real GNS3 VM
+* Fixes Qemu sata option. Ref #875.
+* Catch GNS3 VM loading error at startup
+
+## 1.5.4 13/04/2017
+
+* Fix VPCS tests for recent version
+* Freeze server dependencies to the same version used for 1.5.3
+* Fix 1.5: Error message, when stopping IOU router #769
+* Drop color logging for remote install, seem to fail in some conditions
+* Cleanup the remote install script
+* Support for Xenial in remote install
+
+## 2.0.0rc3 31/03/2017
+
+* Support IOU image without .bin at the end
+* Allow to change some properties of an already connected ethernet switch
+* Ensure we start only one ubridge
+* Catch some broken hostname for compute node
+* Fix limit of 20 docker containers
+* Fix race conditions in creation of Frame Relay Switch
+* Fix conversion of project from 1.X with custom symbol for cloud
+* Dissallow parallel pull of docker images
+* Add a scripts for running current dev version on GNS3 VM
+* Fix a crash with missing size in the svg files
+* Fix an utf8 error in auth code
+* Improve vmrun timeout message
+* Support utf-8 characters in user and password for auth
+* Handle password configuration change on remote servers
+* Fix Bug when delete fake-running VMBox
+* Fix Can't connect to compute local on some computers
+* Add a modification uuid to settings returned by the server
+* Check python version in setup.py only for install
+* Fix Session is closed when listing docker images
+* Cleanup docker source code
+* Use aiohttp session for docker queries
+* Escape special characters from SVG text
+* Fix some port short name display issues
+* Catch server disconnected errors from computes
+* Generate a node uuid if the uuid is missing in the .gns3
+* Ensure to dump project before exporting it
+* Fix return code check for SIGSEGV of IOU images
+* Prevent vmname change for VirtualBox linked clone
+* Upgrade to aiohttp 1.3.5 to solve issue with big file
+* Handle some invalid svg
+* Try to fix some 1.3 topology with corrupted data
+* Fix ComputeError: Can't connect to Main server
+* Catch error when the server as trouble to access to itself
+* Catch a timeout error in docker
+* Lock yarl version because 0.10 is not compatible with aiohttp 1.3
+* Raise error if image are not avaible on main server during export
+* Fix a race condition when killing ubridge
+* If your settings from 1.X are broken with skip them at import
+* Catch a permission error on symbols
+* Catch unicode error when you try to duplicate a project with invalid characters
+* Catch error when you try to put an invalid server url
+* Fix an error when handling ubridge errors
+* Fix crash when handling an error in project creation
+
+## 2.0.0rc2 10/03/2017
+
+* Drop color logging for remote install, seem to fail in some conditions
+* Cleanup the remote install script
+* Support for Xenial in remote install
+* Fix GNS3VM settings are lost at startup
+* When we receive settings from the client save them on disk
+
+## 2.0.0 RC 1 06/03/2017
+
+* Update the documentation
+* Enable show in file manager for cloud
+* Improve error log when you have trouble to load a topology
+* Fix when qemu exit by itself clean other processes
+* Fix an issue with some node name format
+* Catch error when we can't save the settings
+* Do not prevent the creation of a local server on a machine named gns3vm
+* Load local server before anything else
+* Remove noise from log when VMware is not installed
+* Fix an error with some SVG
+* Patch hostname in configuration file even if name is unsync
+* If the GNS3 VM as failed to start reset his status
+* Update the documentation
+* Enable show in file manager for cloud
+* Improve error log when you have trouble to load a topology
+* Fix when qemu exit by itself clean other processes
+* Fix an issue with some node name format
+* Catch error when we can't save the settings
+* Do not prevent the creation of a local server on a machine named gns3vm
+* Load local server before anything else
+* Remove noise from log when VMware is not installed
+* Fix an error with some SVG
+* Patch hostname in configuration file even if name is unsync
+* If the GNS3 VM as failed to start reset his status
+* Report aiohttp version in crash report
+* Catch some invalid node name formatting
+* Ensure we dump a .gns3 before exporting it
+* Improve ACPI shutdown for virtualbox
+* Fix an issue with serial capture for IOU
+* Fix restoration of private config when using dynamips
+* Avoid a crash when the connection with the server close
+* Increase timeout for detecting VirtualBox GNS3 VM
+* Fix headless startup of the GNS3 VM
+* Do not crash at startup if local server as the same name as remote server
+* Yarl 0.9.8 is require by aiohttp 1.3
+
+## 2.0.0 beta 4 16/02/2017
+
+* Lock aiohttp to 1.2.0 because 1.3 create bug with Qt
+* Avoid a crash in some conditions when reading the serial console
+* Disallow export of project with VirtualBox linked clone
+* Fix linked_clone property lost during topology convert
+* Catch permission error when restoring a snapshot
+* Fix a rare crash when closing a project
+* Fix error when you have error on your filesystem during project convertion
+* Catch error when we can't access to a unix socket
+* If we can't resolve compute name return 0.0.0.0
+* Raise an error if you put an invalid key in node name
+* Improve a lot project loading speed
+* Fix a potential crash
+* Fix the server don't start if a remote is unavailable
+* Do not crash if you pass {name} in name
+* Fix import/export of dynamips configuration
+* Simplify conversion process from 1.3 to 2.0
+* Prevent corruption of VM in VirtualBox when using linked clone
+* Fix creation of qemu img
+* Fix rare race condition when stopping ubridge
+* Prevent renaming of a running VirtualBox linked VM
+* Avoid crash when you broke your system permissions
+* Do not crash when you broke permission on your file system during execution
+* Fix a crash when you broke permission on your file system
+* Fix a rare race condition when exporting debug informations
+* Do not try to start the GNS3 VM if the name is none
+* Fix version check for VPCS
+* Fix pcap for PPP link with IOU
+* Correct link are not connected to the correct ethernet switch port after conversion
+* Fix an error if you don't have permissions on your symbols directory
+* Fix an error when converting some topologies from 1.3
+
+## 2.0.0 beta 3 19/01/2017
+
+* Force the dependency on typing because otherwise it's broke on 3.4
+* Fix sometimes you have an exception when closing GNS3
+* Fix duplicate node names
+* Fix bug with other directory of Qemu images
+* Do not raise an error if no VM is selected for remote GNS3 VM
+* Fix UnboundLocalError: local variable 'vmname' referenced before assignment
+* Fix some race condition in project deletion
+* If qemu status change internally we mirror it
+* Fix hostname of VPCS is not changed
+* Fix capture stop with Wireshark
+* Drop a useless debug information
+* Fix sometimes VirtualBox VM are not loading
+* Drop NAT port from cloud from old topologies
+* Fix Port labels for docker VMs incorrect
+* Fix If cloud interface is down the project doesn't open
+* Catch Timeout error from VirtualBox GNS3 VM
+* Fix export of IOU configuration
+* Fix a crash with VirtualBox in some conditions
+* Sata disk interface support for Qemu VMs. (#862)
+* Fix random error in the dynamips test suite after previous commit
+* Support conversion to dynamips new directory layout on remote
+* Catch error when a file is deleted during the compression of project
+* Fix a crash with some docker images
+* Fix Wrong slot numbering on IOS router
+* Fix VPCS configuration is overwritten on project load
+* Fix wrong short label for ethernet switch, hub & VPCS
+* Fix binding console host for VMware and VirtualBox
+* Fix resume of dynamips routers
+* Fix sporadically systemd is unable to start gns3-server
+* Fix RuntimeError: File size has increased during compressing
+* Do not dump local compute configuration when saving topology
+* Change directory layout for dynamips.
+* Ensure we can't connect to occupy port
+* Fix handling of UTF-8 in large SVG files
+* Prevent a crash when you close a dynamips node and create a link at the same time
+* Fix short label diplay instead of custom interface labels
+* Improve error message about the netmask
+* Do not mark VirtualBox adapter as connected when not connected to another node in GNS3.
+* Add missing 'DLT_PPP_SERIAL' PCAP link type in schemas.
+* Fix crash when converting topology with broken link
+* Replace JSONDecodeError by ValueError (Python 3.4 compatibility)
+* Catch an error when we can't create the IOU directory
+
+## 1.5.3 12/01/2017
+
+* Fix sporadically systemd is unable to start gns3-server
+
 ## 2.0.0 beta 2 20/12/2016
 
 * Fix an error when docker hub failed to anwser
@@ -34,6 +234,28 @@
 * Fix configuration lost during save as on remote server
 * Add support for bios images
 * Fix error when controller config file is corrupted
+
+## 1.5.3 rc1 20/12/2016
+
+* Support aiohttp 1.2 (but not compatible with previous versions)
+* Explain that segfault on IOU is a issue with the image
+* Fix an issue with finding vmrun and vboxmanage
+* Support named remote servers for VPCS
+* When checking for a free port check if the host and 0.0.0.0 are available
+* smm=off is only for 64bits
+* Fix set hostname on remote server
+* Fix sending smm option to qemu
+* Workaround a bug with KVM, Qemu >= 2.4 and Intel CPU
+* Renable sleep at Vbox exit bug seem to be back
+* Support large project (> 2GB) during export
+* Fix Deleting running telnet docker VM shows error in log
+* Fix when closing a container using VNC, root permission are not reset
+* Use $PATH also for dynamips and cleanup some $PATH usages
+* Fix a lock issue with some virtualbox vm
+* Raise proper error when you try to load an empty qcow2 file
+* Fix upload form crash
+* Search bin from the $PATH for sample configuration file
+* Updated systemd unit file and added sample configuration file
 
 ## 2.0.0 beta 1 07/12/2016
 
@@ -217,7 +439,6 @@
 * Suspend the GNS3VM when closing GNS3
 * Edit the scene size
 * New API
-
 
 ## 1.5.2 18/08/2016
 

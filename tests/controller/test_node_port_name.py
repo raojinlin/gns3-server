@@ -22,6 +22,7 @@ from tests.utils import AsyncioMagicMock
 
 from gns3server.controller.node import Node
 from gns3server.controller.project import Project
+from gns3server.controller.ports.ethernet_port import EthernetPort
 
 
 @pytest.fixture
@@ -40,7 +41,7 @@ def project(controller):
 def node(compute, project):
     node = Node(project, compute, "demo",
                 node_id=str(uuid.uuid4()),
-                node_type="vpcs",
+                node_type="qemu",
                 console_type="vnc",
                 properties={"startup_script": "echo test"})
     return node
@@ -57,6 +58,49 @@ def test_list_ports(node):
             "data_link_types": {"Ethernet": "DLT_EN10MB"},
             "port_number": 0,
             "adapter_number": 0,
+            "link_type": "ethernet"
+        }
+    ]
+
+
+def test_list_ports_vpcs(node):
+    """
+    List port by default
+    """
+    node._node_type = "vpcs"
+    assert node.__json__()["ports"] == [
+        {
+            "name": "Ethernet0",
+            "short_name": "e0",
+            "data_link_types": {"Ethernet": "DLT_EN10MB"},
+            "port_number": 0,
+            "adapter_number": 0,
+            "link_type": "ethernet"
+        }
+    ]
+
+
+def test_list_ports_docker(node):
+    """
+    List port by default
+    """
+    node._node_type = "docker"
+    node._properties["adapters"] = 2
+    assert node.__json__()["ports"] == [
+        {
+            "name": "eth0",
+            "short_name": "eth0",
+            "data_link_types": {"Ethernet": "DLT_EN10MB"},
+            "port_number": 0,
+            "adapter_number": 0,
+            "link_type": "ethernet"
+        },
+        {
+            "name": "eth1",
+            "short_name": "eth1",
+            "data_link_types": {"Ethernet": "DLT_EN10MB"},
+            "port_number": 0,
+            "adapter_number": 1,
             "link_type": "ethernet"
         }
     ]
@@ -135,7 +179,7 @@ def test_list_ports_adapters_cloud(project, compute):
     assert node.__json__()["ports"] == [
         {
             "name": "eth0",
-            "short_name": "e0/0",
+            "short_name": "eth0",
             "data_link_types": {"Ethernet": "DLT_EN10MB"},
             "port_number": 0,
             "adapter_number": 0,
@@ -165,7 +209,7 @@ def test_list_ports_ethernet_hub(project, compute):
     assert node.__json__()["ports"] == [
         {
             "name": "Ethernet0",
-            "short_name": "e0/0",
+            "short_name": "e0",
             "data_link_types": {"Ethernet": "DLT_EN10MB"},
             "port_number": 0,
             "adapter_number": 0,
@@ -173,7 +217,7 @@ def test_list_ports_ethernet_hub(project, compute):
         },
         {
             "name": "Ethernet1",
-            "short_name": "e0/1",
+            "short_name": "e1",
             "data_link_types": {"Ethernet": "DLT_EN10MB"},
             "port_number": 1,
             "adapter_number": 0,
@@ -548,3 +592,11 @@ def test_list_ports_dynamips(project, compute):
             "link_type": "serial"
         }
     ]
+
+
+def test_short_name():
+    # If no customization of port name format return the default short name
+    assert EthernetPort("Ethernet0", 0, 0, 0).short_name == "e0/0"
+    assert EthernetPort("Ethernet0", 0, 0, 0, short_name="mgmt").short_name == "mgmt"
+    # If port name format has change we use the port name as the short name (1.X behavior)
+    assert EthernetPort("eth0", 0, 0, 0).short_name == "eth0"

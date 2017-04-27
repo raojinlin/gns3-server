@@ -5,13 +5,14 @@ GET /v2/version HTTP/1.1
 
 
 HTTP/1.1 200
-Content-Length: 49
+Connection: close
+Content-Length: 50
 Content-Type: application/json
-Date: Thu, 03 Nov 2016 17:20:04 GMT
-Server: Python/3.5 GNS3/2.0.0dev4
+Date: Tue, 21 Mar 2017 09:32:05 GMT
+Server: Python/3.6 GNS3/2.0.0dev11
 X-Route: /v2/version
 
 {
     "local": true,
-    "version": "2.0.0dev4"
+    "version": "2.0.0dev11"
 }

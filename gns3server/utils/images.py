@@ -58,7 +58,7 @@ def list_images(type):
                     if filename.endswith(".md5sum") or filename.startswith("."):
                         continue
                     elif ((filename.endswith(".image") or filename.endswith(".bin")) and type == "dynamips") \
-                            or (filename.endswith(".bin") and type == "iou") \
+                            or ((filename.endswith(".bin") or filename.startswith("i86bi")) and type == "iou") \
                             or (not filename.endswith(".bin") and not filename.endswith(".image") and type == "qemu"):
                         files.add(filename)
 
@@ -79,7 +79,7 @@ def list_images(type):
 
                             images.append({
                                 "filename": filename,
-                                "path": path,
+                                "path": force_unix_path(path),
                                 "md5sum": md5sum(os.path.join(root, filename)),
                                 "filesize": os.stat(os.path.join(root, filename)).st_size})
                         except OSError as e:
@@ -130,8 +130,11 @@ def images_directories(type):
     paths = []
     img_dir = os.path.expanduser(server_config.get("images_path", "~/GNS3/images"))
     type_img_directory = default_images_directory(type)
-    os.makedirs(type_img_directory, exist_ok=True)
-    paths.append(type_img_directory)
+    try:
+        os.makedirs(type_img_directory, exist_ok=True)
+        paths.append(type_img_directory)
+    except (OSError, PermissionError):
+        pass
     for directory in server_config.get("additional_images_path", "").split(";"):
         paths.append(directory)
     # Compatibility with old topologies we look in parent directory

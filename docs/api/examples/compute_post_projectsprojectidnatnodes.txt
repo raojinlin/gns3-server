@@ -7,21 +7,22 @@ POST /v2/compute/projects/a1e920ca-338a-4e9f-b363-aa607b09dd80/nat/nodes HTTP/1.
 
 
 HTTP/1.1 201
-Content-Length: 332
+Connection: close
+Content-Length: 335
 Content-Type: application/json
-Date: Thu, 03 Nov 2016 17:19:54 GMT
-Server: Python/3.5 GNS3/2.0.0dev4
+Date: Tue, 21 Mar 2017 09:31:45 GMT
+Server: Python/3.6 GNS3/2.0.0dev11
 X-Route: /v2/compute/projects/{project_id}/nat/nodes
 
 {
     "name": "Nat 1",
-    "node_id": "f8572394-f4a6-41c2-8990-76191f85976c",
+    "node_id": "681a2b8d-0213-4851-9a40-9ecd68165e8e",
     "ports_mapping": [
         {
-            "interface": "gns3nat4",
+            "interface": "virbr0",
             "name": "nat0",
             "port_number": 0,
-            "type": "tap"
+            "type": "ethernet"
         }
     ],
     "project_id": "a1e920ca-338a-4e9f-b363-aa607b09dd80",

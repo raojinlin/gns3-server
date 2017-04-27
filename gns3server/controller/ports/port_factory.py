@@ -15,6 +15,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+import aiohttp
+
 from .atm_port import ATMPort
 from .frame_relay_port import FrameRelayPort
 from .gigabitethernet_port import GigabitEthernetPort
@@ -64,11 +66,14 @@ class StandardPortFactory:
                     port_name = first_port_name
                     port = PortFactory(port_name, segment_number, adapter_number, port_number, "ethernet")
                 else:
-                    port_name = port_name_format.format(
-                        interface_number,
-                        segment_number,
-                        adapter=adapter_number,
-                        **cls._generate_replacement(interface_number, segment_number))
+                    try:
+                        port_name = port_name_format.format(
+                            interface_number,
+                            segment_number,
+                            adapter=adapter_number,
+                            **cls._generate_replacement(interface_number, segment_number))
+                    except (ValueError, KeyError) as e:
+                        raise aiohttp.web.HTTPConflict(text="Invalid port name format {}: {}".format(port_name_format, str(e)))
                     port = PortFactory(port_name, segment_number, adapter_number, port_number, "ethernet")
                     interface_number += 1
                     if port_segment_size:
@@ -175,20 +180,15 @@ class DynamipsPortFactory:
     def __new__(cls, properties):
         ports = []
 
-        interface_numbers = {}
-
         adapter_number = 0
         wic_port_number = 16
         for name in sorted(properties.keys()):
             if name.startswith("slot") and properties[name]:
                 port_class = cls.ADAPTER_MATRIX[properties[name]]["port"]
                 if port_class:
-                    interface_numbers.setdefault(port_class, 0)
-                    interface_number = interface_numbers[port_class]
                     for port_number in range(0, cls.ADAPTER_MATRIX[properties[name]]["nb_ports"]):
-                        name = "{}{}/{}".format(port_class.long_name_type(), interface_number, port_number)
-                        ports.append(port_class(name, interface_number, adapter_number, port_number))
-                    interface_numbers[port_class] += 1
+                        name = "{}{}/{}".format(port_class.long_name_type(), adapter_number, port_number)
+                        ports.append(port_class(name, adapter_number, adapter_number, port_number))
                 adapter_number += 1
             elif name.startswith("wic") and properties[name]:
                 port_class = cls.WIC_MATRIX[properties[name]]["port"]

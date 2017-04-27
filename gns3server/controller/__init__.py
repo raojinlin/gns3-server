@@ -18,19 +18,24 @@
 import os
 import sys
 import json
+import uuid
 import socket
+import shutil
 import asyncio
 import aiohttp
 
 from ..config import Config
 from .project import Project
+from .appliance import Appliance
+from .appliance_template import ApplianceTemplate
 from .compute import Compute, ComputeError
 from .notification import Notification
 from .symbols import Symbols
 from ..version import __version__
 from .topology import load_topology
 from .gns3vm import GNS3VM
-
+from ..utils.get_resource import get_resource
+from .gns3vm.gns3_vm_error import GNS3VMError
 
 import logging
 log = logging.getLogger(__name__)
@@ -42,38 +47,137 @@ class Controller:
     def __init__(self):
         self._computes = {}
         self._projects = {}
+
+        # Store settings shared by the different GUI will be replaced
+        # by dedicated API later
+        self._settings = {}
+
         self._notification = Notification(self)
         self.gns3vm = GNS3VM(self)
         self.symbols = Symbols()
+
         # Store settings shared by the different GUI will be replace by dedicated API later
-        self._settings = {}
+        self._settings = None
+        self._appliances = {}
+        self._appliance_templates = {}
 
         self._config_file = os.path.join(Config.instance().config_dir, "gns3_controller.conf")
         log.info("Load controller configuration file {}".format(self._config_file))
 
+    def load_appliances(self):
+        self._appliance_templates = {}
+        for file in os.listdir(get_resource('appliances')):
+            with open(os.path.join(get_resource('appliances'), file)) as f:
+                appliance = ApplianceTemplate(None, json.load(f))
+            if appliance.status != 'broken':
+                self._appliance_templates[appliance.id] = appliance
+
+        self._appliances = {}
+        for vm in self._settings.get("Qemu", {}).get("vms", []):
+            vm["node_type"] = "qemu"
+            appliance = Appliance(None, vm)
+            self._appliances[appliance.id] = appliance
+        for vm in self._settings.get("IOU", {}).get("devices", []):
+            vm["node_type"] = "iou"
+            appliance = Appliance(None, vm)
+            self._appliances[appliance.id] = appliance
+        for vm in self._settings.get("Docker", {}).get("containers", []):
+            vm["node_type"] = "docker"
+            appliance = Appliance(None, vm)
+            self._appliances[appliance.id] = appliance
+        for vm in self._settings.get("Builtin", {}).get("cloud_nodes", []):
+            vm["node_type"] = "cloud"
+            appliance = Appliance(None, vm)
+            self._appliances[appliance.id] = appliance
+        for vm in self._settings.get("Builtin", {}).get("ethernet_switches", []):
+            vm["node_type"] = "ethernet_switch"
+            appliance = Appliance(None, vm)
+            self._appliances[appliance.id] = appliance
+        for vm in self._settings.get("Builtin", {}).get("ethernet_hubs", []):
+            vm["node_type"] = "ethernet_hub"
+            appliance = Appliance(None, vm)
+            self._appliances[appliance.id] = appliance
+        for vm in self._settings.get("Dynamips", {}).get("routers", []):
+            vm["node_type"] = "dynamips"
+            appliance = Appliance(None, vm)
+            self._appliances[appliance.id] = appliance
+        for vm in self._settings.get("VMware", {}).get("vms", []):
+            vm["node_type"] = "vmware"
+            appliance = Appliance(None, vm)
+            self._appliances[appliance.id] = appliance
+        for vm in self._settings.get("VirtualBox", {}).get("vms", []):
+            vm["node_type"] = "virtualbox"
+            appliance = Appliance(None, vm)
+            self._appliances[appliance.id] = appliance
+        for vm in self._settings.get("VPCS", {}).get("nodes", []):
+            vm["node_type"] = "vpcs"
+            appliance = Appliance(None, vm)
+            self._appliances[appliance.id] = appliance
+        # Add builtins
+        builtins = []
+        builtins.append(Appliance(None, {"node_type": "cloud", "name": "Cloud", "category": 2, "symbol": ":/symbols/cloud.svg"}, builtin=True))
+        builtins.append(Appliance(None, {"node_type": "nat", "name": "NAT", "category": 2, "symbol": ":/symbols/cloud.svg"}, builtin=True))
+        builtins.append(Appliance(None, {"node_type": "vpcs", "name": "VPCS", "category": 2, "symbol": ":/symbols/vpcs_guest.svg"}, builtin=True))
+        builtins.append(Appliance(None, {"node_type": "ethernet_switch", "name": "Ethernet switch", "category": 1, "symbol": ":/symbols/ethernet_switch.svg"}, builtin=True))
+        builtins.append(Appliance(None, {"node_type": "ethernet_hub", "name": "Ethernet hub", "category": 1, "symbol": ":/symbols/hub.svg"}, builtin=True))
+        builtins.append(Appliance(None, {"node_type": "frame_relay_switch", "name": "Frame Relay switch", "category": 1, "symbol": ":/symbols/frame_relay_switch.svg"}, builtin=True))
+        builtins.append(Appliance(None, {"node_type": "atm_switch", "name": "ATM switch", "category": 1, "symbol": ":/symbols/atm_switch.svg"}, builtin=True))
+        for b in builtins:
+            self._appliances[b.id] = b
+
     @asyncio.coroutine
     def start(self):
         log.info("Start controller")
-        yield from self.load()
+        self.load_base_files()
         server_config = Config.instance().get_section_config("Server")
+        Config.instance().listen_for_config_changes(self._update_config)
         host = server_config.get("host", "localhost")
+
         # If console_host is 0.0.0.0 client will use the ip they use
         # to connect to the controller
         console_host = host
         if host == "0.0.0.0":
             host = "127.0.0.1"
-        yield from self.add_compute(compute_id="local",
-                                    name=socket.gethostname(),
-                                    protocol=server_config.get("protocol", "http"),
-                                    host=host,
-                                    console_host=console_host,
-                                    port=server_config.getint("port", 3080),
-                                    user=server_config.get("user", ""),
-                                    password=server_config.get("password", ""),
-                                    force=True)
+
+        name = socket.gethostname()
+        if name == "gns3vm":
+            name = "Main server"
+
+        computes = yield from self._load_controller_settings()
+        try:
+            self._local_server = yield from self.add_compute(compute_id="local",
+                                                             name=name,
+                                                             protocol=server_config.get("protocol", "http"),
+                                                             host=host,
+                                                             console_host=console_host,
+                                                             port=server_config.getint("port", 3080),
+                                                             user=server_config.get("user", ""),
+                                                             password=server_config.get("password", ""),
+                                                             force=True)
+        except aiohttp.web_exceptions.HTTPConflict as e:
+            log.fatal("Can't acces to the local server, make sure anything else is not running on the same port")
+            sys.exit(1)
+        for c in computes:
+            try:
+                yield from self.add_compute(**c)
+            except (aiohttp.web_exceptions.HTTPConflict):
+                pass  # Skip not available servers at loading
         yield from self.load_projects()
-        yield from self.gns3vm.auto_start_vm()
+        try:
+            yield from self.gns3vm.auto_start_vm()
+        except GNS3VMError as e:
+            log.warn(str(e))
         yield from self._project_auto_open()
+
+    def _update_config(self):
+        """
+        Call this when the server configuration file
+        change
+        """
+        if self._local_server:
+            server_config = Config.instance().get_section_config("Server")
+            self._local_server.user = server_config.get("user")
+            self._local_server.password = server_config.get("password")
 
     @asyncio.coroutine
     def stop(self):
@@ -94,6 +198,9 @@ class Controller:
         """
         Save the controller configuration on disk
         """
+        # We don't save during the loading otherwise we could lost stuff
+        if self._settings is None:
+            return
         data = {
             "computes": [],
             "settings": self._settings,
@@ -112,12 +219,15 @@ class Controller:
                     "password": c.password,
                     "compute_id": c.id
                 })
-        os.makedirs(os.path.dirname(self._config_file), exist_ok=True)
-        with open(self._config_file, 'w+') as f:
-            json.dump(data, f, indent=4)
+        try:
+            os.makedirs(os.path.dirname(self._config_file), exist_ok=True)
+            with open(self._config_file, 'w+') as f:
+                json.dump(data, f, indent=4)
+        except OSError as e:
+            log.error("Can't write the configuration {}: {}".format(self._config_file, str(e)))
 
     @asyncio.coroutine
-    def load(self):
+    def _load_controller_settings(self):
         """
         Reload the controller configuration from disk
         """
@@ -129,18 +239,18 @@ class Controller:
                 data = json.load(f)
         except (OSError, ValueError) as e:
             log.critical("Cannot load %s: %s", self._config_file, str(e))
-            return
+            self._settings = {}
+            return []
 
-        if "settings" in data:
+        if "settings" in data and data["settings"] is not None:
             self._settings = data["settings"]
+        else:
+            self._settings = {}
         if "gns3vm" in data:
             self.gns3vm.settings = data["gns3vm"]
 
-        for c in data["computes"]:
-            try:
-                yield from self.add_compute(**c)
-            except aiohttp.web_exceptions.HTTPConflict:
-                pass  # Skip not available servers at loading
+        self.load_appliances()
+        return data["computes"]
 
     @asyncio.coroutine
     def load_projects(self):
@@ -163,12 +273,35 @@ class Controller:
         except OSError as e:
             log.error(str(e))
 
+    def load_base_files(self):
+        """
+        At startup we copy base file to the user location to allow
+        them to customize it
+        """
+        dst_path = self.configs_path()
+        src_path = get_resource('configs')
+        try:
+            for file in os.listdir(src_path):
+                if not os.path.exists(os.path.join(dst_path, file)):
+                    shutil.copy(os.path.join(src_path, file), os.path.join(dst_path, file))
+        except OSError:
+            pass
+
     def images_path(self):
         """
         Get the image storage directory
         """
         server_config = Config.instance().get_section_config("Server")
         images_path = os.path.expanduser(server_config.get("images_path", "~/GNS3/projects"))
+        os.makedirs(images_path, exist_ok=True)
+        return images_path
+
+    def configs_path(self):
+        """
+        Get the configs storage directory
+        """
+        server_config = Config.instance().get_section_config("Server")
+        images_path = os.path.expanduser(server_config.get("configs_path", "~/GNS3/projects"))
         os.makedirs(images_path, exist_ok=True)
         return images_path
 
@@ -183,15 +316,19 @@ class Controller:
                 data = json.load(f)
                 server_settings = data.get("Servers", {})
                 for remote in server_settings.get("remote_servers", []):
-                    yield from self.add_compute(
-                        host=remote.get("host", "localhost"),
-                        port=remote.get("port", 3080),
-                        protocol=remote.get("protocol", "http"),
-                        name=remote.get("url"),
-                        user=remote.get("user"),
-                        password=remote.get("password")
-                    )
+                    try:
+                        yield from self.add_compute(
+                            host=remote.get("host", "localhost"),
+                            port=remote.get("port", 3080),
+                            protocol=remote.get("protocol", "http"),
+                            name=remote.get("url"),
+                            user=remote.get("user"),
+                            password=remote.get("password")
+                        )
+                    except aiohttp.web.HTTPConflict:
+                        pass  # if the server is broken we skip it
                 if "vm" in server_settings:
+                    vmname = None
                     vm_settings = server_settings["vm"]
                     if vm_settings["virtualization"] == "VMware":
                         engine = "vmware"
@@ -218,6 +355,7 @@ class Controller:
                         "headless": vm_settings.get("headless", False),
                         "vmname": vmname
                     }
+                self._settings = {}
 
     @property
     def settings(self):
@@ -229,6 +367,9 @@ class Controller:
     @settings.setter
     def settings(self, val):
         self._settings = val
+        self._settings["modification_uuid"] = str(uuid.uuid4())  # We add a modification id to the settings it's help the gui to detect changes
+        self.save()
+        self.load_appliances()
         self.notification.emit("settings.updated", val)
 
     @asyncio.coroutine
@@ -254,7 +395,7 @@ class Controller:
                 return None
 
             for compute in self._computes.values():
-                if name and compute.name == name:
+                if name and compute.name == name and not force:
                     raise aiohttp.web.HTTPConflict(text='Compute name "{}" already exists'.format(name))
 
             compute = Compute(compute_id=compute_id, controller=self, name=name, **kwargs)
@@ -317,7 +458,6 @@ class Controller:
         try:
             return self._computes[compute_id]
         except KeyError:
-            server_config = Config.instance().get_section_config("Server")
             if compute_id == "vm":
                 raise aiohttp.web.HTTPNotFound(text="You have tried to use a node configured to run on the GNS3 VM server but this VM is not configured")
             raise aiohttp.web.HTTPNotFound(text="Compute ID {} doesn't exist".format(compute_id))
@@ -368,7 +508,8 @@ class Controller:
         return project
 
     def remove_project(self, project):
-        del self._projects[project.id]
+        if project.id in self._projects:
+            del self._projects[project.id]
 
     @asyncio.coroutine
     def load_project(self, path, load=True):
@@ -379,7 +520,7 @@ class Controller:
         :param load: Load the topology
         """
         topo_data = load_topology(path)
-        topology = topo_data.pop("topology")
+        topo_data.pop("topology")
         topo_data.pop("version")
         topo_data.pop("revision")
         topo_data.pop("type")
@@ -427,6 +568,20 @@ class Controller:
         :returns: The dictionary of computes managed by GNS3
         """
         return self._projects
+
+    @property
+    def appliance_templates(self):
+        """
+        :returns: The dictionary of appliances templates managed by GNS3
+        """
+        return self._appliance_templates
+
+    @property
+    def appliances(self):
+        """
+        :returns: The dictionary of appliances managed by GNS3
+        """
+        return self._appliances
 
     def projects_directory(self):
         server_config = Config.instance().get_section_config("Server")

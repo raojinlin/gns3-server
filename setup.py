@@ -20,7 +20,7 @@ from setuptools import setup, find_packages
 from setuptools.command.test import test as TestCommand
 
 # we only support Python 3 version >= 3.4
-if sys.version_info < (3, 4):
+if len(sys.argv) >= 2 and sys.argv[1] == "install" and sys.version_info < (3, 4):
     raise SystemExit("Python 3.4 or higher is required")
 
 
@@ -39,6 +39,9 @@ class PyTest(TestCommand):
         sys.exit(errcode)
 
 dependencies = open("requirements.txt", "r").read().splitlines()
+
+if sys.version_info <= (3, 4):
+    dependencies.append('typing>=3.5.3.0 # Otherwise yarl fail with python 3.4')
 
 setup(
     name="gns3-server",

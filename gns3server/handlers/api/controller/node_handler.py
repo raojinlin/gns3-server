@@ -20,6 +20,7 @@ import aiohttp
 
 from gns3server.web.route import Route
 from gns3server.controller import Controller
+from gns3server.utils import force_unix_path
 
 from gns3server.schemas.node import (
     NODE_OBJECT_SCHEMA,
@@ -337,17 +338,14 @@ class NodeHandler:
         project = yield from Controller.instance().get_loaded_project(request.match_info["project_id"])
         node = project.get_node(request.match_info["node_id"])
         path = request.match_info["path"]
-        path = os.path.normpath(path)
+        path = force_unix_path(path)
 
         # Raise error if user try to escape
         if path[0] == ".":
             raise aiohttp.web.HTTPForbidden
 
         node_type = node.node_type
-        if node_type == "dynamips":
-            path = "/project-files/{}/{}".format(node_type, path)
-        else:
-            path = "/project-files/{}/{}/{}".format(node_type, node.id, path)
+        path = "/project-files/{}/{}/{}".format(node_type, node.id, path)
 
         res = yield from node.compute.http_query("GET", "/projects/{project_id}/files{path}".format(project_id=project.id, path=path), timeout=None, raw=True)
         response.set_status(200)
@@ -384,12 +382,9 @@ class NodeHandler:
             raise aiohttp.web.HTTPForbidden
 
         node_type = node.node_type
-        if node_type == "dynamips":
-            path = "/project-files/{}/{}".format(node_type, path)
-        else:
-            path = "/project-files/{}/{}/{}".format(node_type, node.id, path)
+        path = "/project-files/{}/{}/{}".format(node_type, node.id, path)
 
         data = yield from request.content.read()
 
-        res = yield from node.compute.http_query("POST", "/projects/{project_id}/files{path}".format(project_id=project.id, path=path), data=data, timeout=None, raw=True)
+        yield from node.compute.http_query("POST", "/projects/{project_id}/files{path}".format(project_id=project.id, path=path), data=data, timeout=None, raw=True)
         response.set_status(201)

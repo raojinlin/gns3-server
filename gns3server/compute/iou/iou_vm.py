@@ -26,8 +26,6 @@ import re
 import asyncio
 import subprocess
 import shutil
-import argparse
-import threading
 import configparser
 import struct
 import hashlib
@@ -97,7 +95,9 @@ class IOUVM(BaseNode):
         """
         Called when the NVRAM file has changed
         """
+        log.debug("NVRAM changed: {}".format(path))
         self.save_configs()
+        self.updated()
 
     @asyncio.coroutine
     def close(self):
@@ -205,8 +205,6 @@ class IOUVM(BaseNode):
                        "ram": self._ram,
                        "nvram": self._nvram,
                        "l1_keepalives": self._l1_keepalives,
-                       "startup_config": self.relative_startup_config_file,
-                       "private_config": self.relative_private_config_file,
                        "use_default_iou_values": self._use_default_iou_values,
                        "command_line": self.command_line}
 
@@ -303,7 +301,7 @@ class IOUVM(BaseNode):
 
         if self.startup_config_file:
             content = self.startup_config_content
-            content = content.replace(self._name, new_name)
+            content = re.sub(r"^hostname .+$", "hostname " + new_name, content, flags=re.MULTILINE)
             self.startup_config_content = content
 
         super(IOUVM, IOUVM).name.__set__(self, new_name)
@@ -485,7 +483,7 @@ class IOUVM(BaseNode):
             # check if there is enough RAM to run
             self.check_available_ram(self.ram)
 
-            self._nvram_watcher = FileWatcher(self._nvram_file(), self._nvram_changed, delay=10)
+            self._nvram_watcher = FileWatcher(self._nvram_file(), self._nvram_changed, delay=2)
 
             # created a environment variable pointing to the iourc file.
             env = os.environ.copy()
@@ -551,7 +549,7 @@ class IOUVM(BaseNode):
                     if nio.capturing:
                         yield from self._ubridge_send('iol_bridge start_capture {name} "{output_file}" {data_link_type}'.format(name=bridge_name,
                                                                                                                                 output_file=nio.pcap_output_file,
-                                                                                                                                data_link_type=nio.pcap_data_link_type))
+                                                                                                                                data_link_type=re.sub("^DLT_", "", nio.pcap_data_link_type)))
 
                 unit_id += 1
             bay_id += 1
@@ -568,7 +566,7 @@ class IOUVM(BaseNode):
         self._terminate_process_iou()
 
         if returncode != 0:
-            if returncode == 11:
+            if returncode == -11:
                 message = "{} process has stopped, return code: {}. This could be an issue with the image using a different image can fix the issue.\n{}".format(process_name, returncode, self.read_iou_stdout())
             else:
                 message = "{} process has stopped, return code: {}\n{}".format(process_name, returncode, self.read_iou_stdout())
@@ -1163,7 +1161,7 @@ class IOUVM(BaseNode):
                                                                                                                                  bay=adapter_number,
                                                                                                                                  unit=port_number,
                                                                                                                                  output_file=output_file,
-                                                                                                                                 data_link_type=data_link_type))
+                                                                                                                                 data_link_type=re.sub("^DLT_", "", data_link_type)))
 
     @asyncio.coroutine
     def stop_capture(self, adapter_number, port_number):

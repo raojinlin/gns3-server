@@ -62,16 +62,8 @@ VM_CREATE_SCHEMA = {
             "type": ["string", "null"],
             "minLength": 1,
         },
-        "startup_config": {
-            "description": "Path to the IOS startup configuration file",
-            "type": "string",
-        },
         "startup_config_content": {
             "description": "Content of IOS startup configuration file",
-            "type": "string",
-        },
-        "private_config": {
-            "description": "Path to the IOS private configuration file",
             "type": "string",
         },
         "private_config_content": {
@@ -296,22 +288,6 @@ VM_UPDATE_SCHEMA = {
             "description": "Dynamips ID",
             "type": "integer"
         },
-        "startup_config": {
-            "description": "Path to the IOS startup configuration file.",
-            "type": "string",
-        },
-        "private_config": {
-            "description": "Path to the IOS private configuration file.",
-            "type": "string",
-        },
-        "startup_config_content": {
-            "description": "Content of IOS startup configuration file",
-            "type": "string",
-        },
-        "private_config_content": {
-            "description": "Content of IOS private configuration file",
-            "type": "string",
-        },
         "ram": {
             "description": "Amount of RAM in MB",
             "type": "integer"
@@ -511,7 +487,7 @@ VM_OBJECT_SCHEMA = {
             "pattern": "^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$"
         },
         "node_directory": {
-            "decription": "Path to the vm working directory",
+            "description": "Path to the vm working directory",
             "type": "string"
         },
         "project_id": {
@@ -551,14 +527,6 @@ VM_OBJECT_SCHEMA = {
             "description": "Checksum of the IOS image",
             "type": ["string", "null"],
             "minLength": 1,
-        },
-        "startup_config": {
-            "description": "Path to the IOS startup configuration file",
-            "type": "string",
-        },
-        "private_config": {
-            "description": "Path to the IOS private configuration file",
-            "type": "string",
         },
         "ram": {
             "description": "Amount of RAM in MB",
@@ -705,14 +673,6 @@ VM_OBJECT_SCHEMA = {
                 {"type": "string"},
                 {"type": "null"}
             ]
-        },
-        "startup_config_content": {
-            "description": "Content of IOS startup configuration file",
-            "type": "string",
-        },
-        "private_config_content": {
-            "description": "Content of IOS private configuration file",
-            "type": "string",
         },
         # C7200 properties
         "npe": {

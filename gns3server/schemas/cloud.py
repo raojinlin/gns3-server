@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+import copy
 from .port import PORT_OBJECT_SCHEMA
 
 HOST_INTERFACE_SCHEMA = {
@@ -75,7 +76,7 @@ CLOUD_CREATE_SCHEMA = {
                      {"$ref": "#/definitions/HostInterfaces"}
                  ]},
             ]
-        },
+        }
     },
     "additionalProperties": False,
     "required": ["name"]
@@ -123,6 +124,10 @@ CLOUD_OBJECT_SCHEMA = {
                  ]},
             ]
         },
+        "node_directory": {
+            "description": "Path to the VM working directory",
+            "type": "string"
+        },
         "status": {
             "description": "Node status",
             "enum": ["started", "stopped", "suspended"]
@@ -132,5 +137,5 @@ CLOUD_OBJECT_SCHEMA = {
     "required": ["name", "node_id", "project_id", "ports_mapping"]
 }
 
-CLOUD_UPDATE_SCHEMA = CLOUD_OBJECT_SCHEMA
+CLOUD_UPDATE_SCHEMA = copy.deepcopy(CLOUD_OBJECT_SCHEMA)
 del CLOUD_UPDATE_SCHEMA["required"]

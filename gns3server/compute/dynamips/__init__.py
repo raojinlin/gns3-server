@@ -219,10 +219,12 @@ class Dynamips(BaseManager):
         project_dir = project.module_working_path(self.module_name.lower())
 
         files = glob.glob(os.path.join(glob.escape(project_dir), "*.ghost"))
-        files += glob.glob(os.path.join(glob.escape(project_dir), "*_lock"))
+        files += glob.glob(os.path.join(glob.escape(project_dir), "*", "*_lock"))
+        files += glob.glob(os.path.join(glob.escape(project_dir), "*_log.txt"))
+        files += glob.glob(os.path.join(glob.escape(project_dir), "*_stdout.txt"))
         files += glob.glob(os.path.join(glob.escape(project_dir), "ilt_*"))
-        files += glob.glob(os.path.join(glob.escape(project_dir), "c[0-9][0-9][0-9][0-9]_i[0-9]*_rommon_vars"))
-        files += glob.glob(os.path.join(glob.escape(project_dir), "c[0-9][0-9][0-9][0-9]_i[0-9]*_log.txt"))
+        files += glob.glob(os.path.join(glob.escape(project_dir), "*", "c[0-9][0-9][0-9][0-9]_i[0-9]*_rommon_vars"))
+        files += glob.glob(os.path.join(glob.escape(project_dir), "*", "c[0-9][0-9][0-9][0-9]_i[0-9]*_log.txt"))
         for file in files:
             try:
                 log.debug("Deleting file {}".format(file))
@@ -409,7 +411,9 @@ class Dynamips(BaseManager):
             return
 
         ghost_file = vm.formatted_ghost_file()
-        ghost_file_path = os.path.join(vm.hypervisor.working_dir, ghost_file)
+
+        module_workdir = vm.project.module_working_directory(self.module_name.lower())
+        ghost_file_path = os.path.join(module_workdir, ghost_file)
         if ghost_file_path not in self._ghost_files:
             # create a new ghost IOS instance
             ghost_id = str(uuid4())
@@ -418,7 +422,7 @@ class Dynamips(BaseManager):
                 yield from ghost.create()
                 yield from ghost.set_image(vm.image)
                 yield from ghost.set_ghost_status(1)
-                yield from ghost.set_ghost_file(ghost_file)
+                yield from ghost.set_ghost_file(ghost_file_path)
                 yield from ghost.set_ram(vm.ram)
                 try:
                     yield from ghost.start()
@@ -434,7 +438,7 @@ class Dynamips(BaseManager):
         if vm.ghost_file != ghost_file and os.path.isfile(ghost_file_path):
             # set the ghost file to the router
             yield from vm.set_ghost_status(2)
-            yield from vm.set_ghost_file(ghost_file)
+            yield from vm.set_ghost_file(ghost_file_path)
 
     @asyncio.coroutine
     def update_vm_settings(self, vm, settings):
@@ -508,28 +512,15 @@ class Dynamips(BaseManager):
         """
 
         module_workdir = vm.project.module_working_directory(self.module_name.lower())
-        default_startup_config_path = os.path.join(module_workdir, "configs", "i{}_startup-config.cfg".format(vm.dynamips_id))
-        default_private_config_path = os.path.join(module_workdir, "configs", "i{}_private-config.cfg".format(vm.dynamips_id))
+        default_startup_config_path = os.path.join(module_workdir, vm.id, "configs", "i{}_startup-config.cfg".format(vm.dynamips_id))
+        default_private_config_path = os.path.join(module_workdir, vm.id, "configs", "i{}_private-config.cfg".format(vm.dynamips_id))
 
-        startup_config_path = settings.get("startup_config")
         startup_config_content = settings.get("startup_config_content")
-        if startup_config_path:
-            yield from vm.set_configs(startup_config_path)
-        elif startup_config_content:
-            startup_config_path = self._create_config(vm, default_startup_config_path, startup_config_content)
-            yield from vm.set_configs(startup_config_path)
-        elif os.path.isfile(default_startup_config_path) and os.path.getsize(default_startup_config_path) == 0:
-            # An empty startup-config may crash Dynamips
-            startup_config_path = self._create_config(vm, default_startup_config_path, "!\n")
-            yield from vm.set_configs(startup_config_path)
-
-        private_config_path = settings.get("private_config")
+        if startup_config_content:
+            self._create_config(vm, default_startup_config_path, startup_config_content)
         private_config_content = settings.get("private_config_content")
-        if private_config_path:
-            yield from vm.set_configs(vm.startup_config, private_config_path)
-        elif private_config_content:
-            private_config_path = self._create_config(vm, default_private_config_path, private_config_content)
-            yield from vm.set_configs(vm.startup_config, private_config_path)
+        if private_config_content:
+            self._create_config(vm, default_private_config_path, private_config_content)
 
     def _create_config(self, vm, path, content=None):
         """
@@ -548,6 +539,11 @@ class Dynamips(BaseManager):
             os.makedirs(config_dir, exist_ok=True)
         except OSError as e:
             raise DynamipsError("Could not create Dynamips configs directory: {}".format(e))
+
+        if content is None or len(content) == 0:
+            content = "!\n"
+            if os.path.exists(path):
+                return
 
         try:
             with open(path, "wb") as f:

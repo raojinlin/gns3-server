@@ -29,23 +29,27 @@ class Symbols:
     """
 
     def __init__(self):
-        self.list()
+        try:
+            self.list()
+        except OSError:  # The error will be raised and forward later
+            pass
         # Keep a cache of symbols size
         self._symbol_size_cache = {}
 
     def list(self):
         self._symbols_path = {}
         symbols = []
-        for file in os.listdir(get_resource("symbols")):
-            if file.startswith('.'):
-                continue
-            symbol_id = ':/symbols/' + file
-            symbols.append({
-                'symbol_id': symbol_id,
-                'filename': file,
-                'builtin': True,
-            })
-            self._symbols_path[symbol_id] = os.path.join(get_resource("symbols"), file)
+        if get_resource("symbols"):
+            for file in os.listdir(get_resource("symbols")):
+                if file.startswith('.'):
+                    continue
+                symbol_id = ':/symbols/' + file
+                symbols.append({
+                    'symbol_id': symbol_id,
+                    'filename': file,
+                    'builtin': True,
+                })
+                self._symbols_path[symbol_id] = os.path.join(get_resource("symbols"), file)
         directory = self.symbols_path()
         if directory:
             for file in os.listdir(directory):
@@ -79,7 +83,7 @@ class Symbols:
                 return self._symbols_path[symbol_id]
             except KeyError:
                 return self._symbols_path[":/symbols/computer.svg"]
-                
+
     def get_size(self, symbol_id):
         try:
             return self._symbol_size_cache[symbol_id]

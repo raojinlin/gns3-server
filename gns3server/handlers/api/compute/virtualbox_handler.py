@@ -22,6 +22,7 @@ from gns3server.web.route import Route
 from gns3server.schemas.nio import NIO_SCHEMA
 from gns3server.schemas.node import NODE_CAPTURE_SCHEMA
 from gns3server.compute.virtualbox import VirtualBox
+from gns3server.compute.virtualbox.virtualbox_error import VirtualBoxError
 from gns3server.compute.project_manager import ProjectManager
 
 from gns3server.schemas.virtualbox import (
@@ -112,10 +113,19 @@ class VirtualBoxHandler:
         vbox_manager = VirtualBox.instance()
         vm = vbox_manager.get_node(request.match_info["node_id"], project_id=request.match_info["project_id"])
 
-        if "vmname" in request.json:
-            vmname = request.json.pop("vmname")
-            if vmname != vm.vmname:
-                yield from vm.set_vmname(vmname)
+        if "name" in request.json:
+            name = request.json.pop("name")
+            vmname = request.json.pop("vmname", None)
+            if name != vm.name:
+                oldname = vm.name
+                vm.name = name
+                if vm.linked_clone:
+                    try:
+                        yield from vm.set_vmname(vm.name)
+                    except VirtualBoxError as e:  # In case of error we rollback (we can't change the name when running)
+                        vm.name = oldname
+                        vm.updated()
+                        raise e
 
         if "adapters" in request.json:
             adapters = int(request.json.pop("adapters"))

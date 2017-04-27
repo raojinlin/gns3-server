@@ -5,17 +5,18 @@ GET /v2/compute/network/interfaces HTTP/1.1
 
 
 HTTP/1.1 200
-Content-Length: 5489
+Connection: close
+Content-Length: 5665
 Content-Type: application/json
-Date: Thu, 03 Nov 2016 17:19:55 GMT
-Server: Python/3.5 GNS3/2.0.0dev4
+Date: Tue, 21 Mar 2017 09:31:46 GMT
+Server: Python/3.6 GNS3/2.0.0dev11
 X-Route: /v2/compute/network/interfaces
 
 [
     {
         "id": "bridge0",
         "ip_address": "",
-        "mac_address": "3e:07:54:87:bc:00",
+        "mac_address": "d2:00:1b:c0:17:80",
         "name": "bridge0",
         "netmask": "",
         "special": true,
@@ -76,6 +77,15 @@ X-Route: /v2/compute/network/interfaces
         "type": "ethernet"
     },
     {
+        "id": "utun0",
+        "ip_address": "",
+        "mac_address": "",
+        "name": "utun0",
+        "netmask": "",
+        "special": false,
+        "type": "ethernet"
+    },
+    {
         "id": "vboxnet0",
         "ip_address": "",
         "mac_address": "0a:00:27:00:00:00",
@@ -122,10 +132,10 @@ X-Route: /v2/compute/network/interfaces
     },
     {
         "id": "vboxnet5",
-        "ip_address": "192.168.33.1",
+        "ip_address": "",
         "mac_address": "0a:00:27:00:00:05",
         "name": "vboxnet5",
-        "netmask": null,
+        "netmask": "",
         "special": true,
         "type": "ethernet"
     },

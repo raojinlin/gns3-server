@@ -9,13 +9,13 @@ Stop capture on a link instance
 
 Parameters
 **********
-- **link_id**: Link UUID
 - **project_id**: Project UUID
+- **link_id**: Link UUID
 
 Response status codes
 **********************
-- **400**: Invalid request
 - **201**: Capture stopped
+- **400**: Invalid request
 
 Sample session
 ***************

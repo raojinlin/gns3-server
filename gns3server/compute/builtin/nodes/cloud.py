@@ -81,7 +81,9 @@ class Cloud(BaseNode):
                 "project_id": self.project.id,
                 "ports_mapping": self._ports_mapping,
                 "interfaces": host_interfaces,
-                "status": "started"}
+                "status": self.status,
+                "node_directory": self.working_dir
+                }
 
     @property
     def ports_mapping(self):
@@ -118,8 +120,23 @@ class Cloud(BaseNode):
         Creates this cloud.
         """
 
-        yield from self._start_ubridge()
+        yield from self.start()
         log.info('Cloud "{name}" [{id}] has been created'.format(name=self._name, id=self._id))
+
+    @asyncio.coroutine
+    def start(self):
+        if self.status != "started":
+            if self._ubridge_hypervisor and self._ubridge_hypervisor.is_running():
+                yield from self._stop_ubridge()
+            yield from self._start_ubridge()
+            for port_number in self._nios:
+                if self._nios[port_number]:
+                    try:
+                        yield from self._add_ubridge_connection(self._nios[port_number], port_number)
+                    except (UbridgeError, NodeError) as e:
+                        self.status = "stopped"
+                        raise e
+            self.status = "started"
 
     @asyncio.coroutine
     def close(self):
@@ -253,13 +270,13 @@ class Cloud(BaseNode):
                                                                                                     interface=port_info["interface"]))
             return
         if not gns3server.utils.interfaces.has_netmask(port_info["interface"]):
-            raise NodeError("Interface {} don't have a netmask".format(port_info["interface"]))
+            raise NodeError("Interface {} has no netmask, interface down?".format(port_info["interface"]))
         yield from self._ubridge_send('bridge add_nio_ethernet {name} "{interface}"'.format(name=bridge_name, interface=port_info["interface"]))
 
     @asyncio.coroutine
     def _add_windows_ethernet(self, port_info, bridge_name):
         if not gns3server.utils.interfaces.has_netmask(port_info["interface"]):
-            raise NodeError("Interface {} don't have a netmask".format(port_info["interface"]))
+            raise NodeError("Interface {} has no netmask, interface down?".format(port_info["interface"]))
         yield from self._ubridge_send('bridge add_nio_ethernet {name} "{interface}"'.format(name=bridge_name, interface=port_info["interface"]))
 
     @asyncio.coroutine
@@ -278,20 +295,21 @@ class Cloud(BaseNode):
                                                                                 id=self._id,
                                                                                 nio=nio,
                                                                                 port=port_number))
-        self._nios[port_number] = nio
         try:
+            yield from self.start()
             yield from self._add_ubridge_connection(nio, port_number)
+            self._nios[port_number] = nio
         except NodeError as e:
-            del self._nios[port_number]
-            raise e
+            self.project.emit("log.error", {"message": str(e)})
+            yield from self._stop_ubridge()
+            self.status = "stopped"
+            self._nios[port_number] = nio
         # Cleanup stuff
         except UbridgeError as e:
-            try:
-                self._delete_ubridge_connection(port_number)
-            except UbridgeError:
-                pass
-            del self._nios[port_number]
-            raise e
+            self.project.emit("log.error", {"message": str(e)})
+            yield from self._stop_ubridge()
+            self.status = "stopped"
+            self._nios[port_number] = nio
 
     @asyncio.coroutine
     def _delete_ubridge_connection(self, port_number):
@@ -327,7 +345,9 @@ class Cloud(BaseNode):
                                                                                     port=port_number))
 
         del self._nios[port_number]
-        yield from self._delete_ubridge_connection(port_number)
+        if self._ubridge_hypervisor and self._ubridge_hypervisor.is_running():
+            yield from self._delete_ubridge_connection(port_number)
+        yield from self.start()
         return nio
 
     @asyncio.coroutine

@@ -147,7 +147,7 @@ QEMU_CREATE_SCHEMA = {
             "description": "Number of adapters",
             "type": ["integer", "null"],
             "minimum": 0,
-            "maximum": 32,
+            "maximum": 275,
         },
         "adapter_type": {
             "description": "QEMU adapter type",
@@ -332,7 +332,7 @@ QEMU_UPDATE_SCHEMA = {
             "description": "Number of adapters",
             "type": ["integer", "null"],
             "minimum": 0,
-            "maximum": 32,
+            "maximum": 275,
         },
         "adapter_type": {
             "description": "QEMU adapter type",
@@ -503,7 +503,7 @@ QEMU_OBJECT_SCHEMA = {
             "enum": ["c", "d", "n", "cn", "cd"]
         },
         "node_directory": {
-            "decription": "Path to the VM working directory",
+            "description": "Path to the VM working directory",
             "type": "string"
         },
         "ram": {
@@ -520,7 +520,7 @@ QEMU_OBJECT_SCHEMA = {
             "description": "Number of adapters",
             "type": "integer",
             "minimum": 0,
-            "maximum": 32,
+            "maximum": 275,
         },
         "adapter_type": {
             "description": "QEMU adapter type",

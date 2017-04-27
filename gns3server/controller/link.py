@@ -18,6 +18,7 @@
 import os
 import re
 import uuid
+import html
 import asyncio
 import aiohttp
 
@@ -52,12 +53,17 @@ class Link:
         return self._created
 
     @asyncio.coroutine
-    def add_node(self, node, adapter_number, port_number, label=None):
+    def add_node(self, node, adapter_number, port_number, label=None, dump=True):
         """
         Add a node to the link
+
+        :param dump: Dump project on disk
         """
 
         port = node.get_port(adapter_number, port_number)
+        if port.link is not None:
+            raise aiohttp.web.HTTPConflict(text="Port is already used")
+
         self._link_type = port.link_type
 
         for other_node in self._nodes:
@@ -78,7 +84,7 @@ class Link:
                 "x": -10,
                 "y": -10,
                 "rotation": 0,
-                "text": "{}/{}".format(adapter_number, port_number),
+                "text": html.escape("{}/{}".format(adapter_number, port_number)),
                 "style": "font-size: 10; font-style: Verdana"
             }
 
@@ -86,6 +92,7 @@ class Link:
             "node": node,
             "adapter_number": adapter_number,
             "port_number": port_number,
+            "port": port,
             "label": label
         })
 
@@ -93,10 +100,12 @@ class Link:
             yield from self.create()
             for n in self._nodes:
                 n["node"].add_link(self)
+                n["port"].link = self
             self._created = True
             self._project.controller.notification.emit("link.created", self.__json__())
 
-        self._project.dump()
+        if dump:
+            self._project.dump()
 
     @asyncio.coroutine
     def update_nodes(self, nodes):
@@ -123,8 +132,11 @@ class Link:
         """
         Delete the link
         """
-        for port in self._nodes:
-            port["node"].remove_link(self)
+        for n in self._nodes:
+            # It could be different of self if we rollback an already existing link
+            if n["port"].link == self:
+                n["port"].link = None
+                n["node"].remove_link(self)
 
     @asyncio.coroutine
     def start_capture(self, data_link_type="DLT_EN10MB", capture_file_name=None):

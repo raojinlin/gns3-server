@@ -9,15 +9,15 @@ Add a NIO to a VirtualBox VM instance
 
 Parameters
 **********
-- **adapter_number**: Adapter where the nio should be added
-- **node_id**: Node UUID
 - **project_id**: Project UUID
+- **node_id**: Node UUID
+- **adapter_number**: Adapter where the nio should be added
 - **port_number**: Port on the adapter (always 0)
 
 Response status codes
 **********************
-- **400**: Invalid request
 - **201**: NIO created
+- **400**: Invalid request
 - **404**: Instance doesn't exist
 
 Sample session
@@ -33,16 +33,16 @@ Remove a NIO from a VirtualBox VM instance
 
 Parameters
 **********
-- **adapter_number**: Adapter from where the nio should be removed
-- **node_id**: Node UUID
 - **project_id**: Project UUID
+- **node_id**: Node UUID
+- **adapter_number**: Adapter from where the nio should be removed
 - **port_number**: Port on the adapter (always 0)
 
 Response status codes
 **********************
+- **204**: NIO deleted
 - **400**: Invalid request
 - **404**: Instance doesn't exist
-- **204**: NIO deleted
 
 Sample session
 ***************

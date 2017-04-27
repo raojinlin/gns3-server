@@ -17,6 +17,7 @@
 
 import aiohttp
 import asyncio
+import html
 import copy
 import uuid
 import os
@@ -146,6 +147,15 @@ class Node:
     def properties(self, val):
         self._properties = val
 
+    def _base_config_file_content(self, path):
+        if not os.path.isabs(path):
+            path = os.path.join(self.project.controller.configs_path(), path)
+        try:
+            with open(path) as f:
+                return f.read()
+        except (PermissionError, OSError):
+            return None
+
     @property
     def project(self):
         return self._project
@@ -229,7 +239,7 @@ class Node:
 
             self._label = {
                 "y": round(self._height / 2 + 10) * -1,
-                "text": self._name,
+                "text": html.escape(self._name),
                 "style": style,
                 "x": None,  # None: mean the client should center it
                 "rotation": 0
@@ -366,8 +376,12 @@ class Node:
                 self._console_type = value
             elif key == "name":
                 self.name = value
-            elif key in ["node_id", "project_id", "console_host"]:
-                pass
+            elif key in ["node_id", "project_id", "console_host",
+                         "startup_config_content",
+                         "private_config_content",
+                         "startup_script"]:
+                if key in self._properties:
+                    del self._properties[key]
             else:
                 self._properties[key] = value
         self._list_ports()
@@ -384,6 +398,17 @@ class Node:
             data = copy.copy(properties)
         else:
             data = copy.copy(self._properties)
+            # We replace the startup script name by the content of the file
+            mapping = {
+                "base_script_file": "startup_script",
+                "startup_config": "startup_config_content",
+                "private_config": "private_config_content",
+            }
+            for k, v in mapping.items():
+                if k in list(self._properties.keys()):
+                    data[v] = self._base_config_file_content(self._properties[k])
+                    del data[k]
+                    del self._properties[k]  # We send the file only one time
         data["name"] = self._name
         if self._console:
             # console is optional for builtin nodes
@@ -558,14 +583,24 @@ class Node:
         elif self._node_type == "dynamips":
             self._ports = DynamipsPortFactory(self._properties)
             return
-        elif self._node_type in ("cloud", "nat", "host_only", "ethernet_switch", "ethernet_hub"):
+        elif self._node_type == "docker":
+            for adapter_number in range(0, self._properties["adapters"]):
+                self._ports.append(PortFactory("eth{}".format(adapter_number), 0, adapter_number, 0, "ethernet", short_name="eth{}".format(adapter_number)))
+        elif self._node_type in ("ethernet_switch", "ethernet_hub"):
+            # Basic node we don't want to have adapter number
             port_number = 0
             for port in self._properties["ports_mapping"]:
-                self._ports.append(PortFactory(port["name"], 0, 0, port_number, "ethernet"))
+                self._ports.append(PortFactory(port["name"], 0, 0, port_number, "ethernet", short_name="e{}".format(port_number)))
+                port_number += 1
+        elif self._node_type in ("vpcs"):
+            self._ports.append(PortFactory("Ethernet0", 0, 0, 0, "ethernet", short_name="e0"))
+        elif self._node_type in ("cloud", "nat", "host_only"):
+            port_number = 0
+            for port in self._properties["ports_mapping"]:
+                self._ports.append(PortFactory(port["name"], 0, 0, port_number, "ethernet", short_name=port["name"]))
                 port_number += 1
         else:
             self._ports = StandardPortFactory(self._properties, self._port_by_adapter, self._first_port_name, self._port_name_format, self._port_segment_size)
-            return
 
     def __repr__(self):
         return "<gns3server.controller.Node {} {}>".format(self._node_type, self._name)
@@ -574,17 +609,6 @@ class Node:
         if not isinstance(other, Node):
             return False
         return self.id == other.id and other.project.id == self.project.id
-
-    def _filter_properties(self):
-        """
-        Some properties are private and should not be exposed
-        """
-        PRIVATE_PROPERTIES = ("iourc_content", )
-        prop = copy.copy(self._properties)
-        for k in list(prop.keys()):
-            if k in PRIVATE_PROPERTIES:
-                del prop[k]
-        return prop
 
     def __json__(self, topology_dump=False):
         """
@@ -598,7 +622,7 @@ class Node:
                 "name": self._name,
                 "console": self._console,
                 "console_type": self._console_type,
-                "properties": self._filter_properties(),
+                "properties": self._properties,
                 "label": self._label,
                 "x": self._x,
                 "y": self._y,
@@ -621,7 +645,7 @@ class Node:
             "console_host": str(self._compute.console_host),
             "console_type": self._console_type,
             "command_line": self._command_line,
-            "properties": self._filter_properties(),
+            "properties": self._properties,
             "status": self._status,
             "label": self._label,
             "x": self._x,

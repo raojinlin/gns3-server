@@ -19,7 +19,7 @@ Input
     <table>
     <tr>                 <th>Name</th>                 <th>Mandatory</th>                 <th>Type</th>                 <th>Description</th>                 </tr>
     <tr><td>auto_close</td>                    <td> </td>                     <td>boolean</td>                     <td>Project auto close</td>                     </tr>
-    <tr><td>name</td>                    <td> </td>                     <td>['string', 'null']</td>                     <td>Project name</td>                     </tr>
+    <tr><td>name</td>                    <td>&#10004;</td>                     <td>['string', 'null']</td>                     <td>Project name</td>                     </tr>
     <tr><td>path</td>                    <td> </td>                     <td>['string', 'null']</td>                     <td>Project directory</td>                     </tr>
     <tr><td>project_id</td>                    <td> </td>                     <td>['string', 'null']</td>                     <td>Project UUID</td>                     </tr>
     <tr><td>scene_height</td>                    <td> </td>                     <td>integer</td>                     <td>Height of the drawing area</td>                     </tr>

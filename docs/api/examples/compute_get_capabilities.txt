@@ -5,10 +5,11 @@ GET /v2/compute/capabilities HTTP/1.1
 
 
 HTTP/1.1 200
-Content-Length: 347
+Connection: close
+Content-Length: 348
 Content-Type: application/json
-Date: Thu, 03 Nov 2016 17:19:51 GMT
-Server: Python/3.5 GNS3/2.0.0dev4
+Date: Tue, 21 Mar 2017 09:31:40 GMT
+Server: Python/3.6 GNS3/2.0.0dev11
 X-Route: /v2/compute/capabilities
 
 {
@@ -28,5 +29,5 @@ X-Route: /v2/compute/capabilities
         "iou"
     ],
     "platform": "linuxdebian",
-    "version": "2.0.0dev4"
+    "version": "2.0.0dev11"
 }

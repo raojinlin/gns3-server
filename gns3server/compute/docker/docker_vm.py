@@ -24,7 +24,6 @@ import shutil
 import psutil
 import shlex
 import aiohttp
-import json
 import os
 
 from gns3server.utils.asyncio.telnet_server import AsyncioTelnetServer
@@ -362,6 +361,7 @@ class DockerVM(BaseNode):
                     try:
                         yield from self._add_ubridge_connection(nio, adapter_number)
                     except UbridgeNamespaceError:
+                        log.error("Container {} failed to start", self.name)
                         yield from self.stop()
 
                         # The container can crash soon after the start, this means we can not move the interface to the container namespace
@@ -518,6 +518,8 @@ class DockerVM(BaseNode):
         state = yield from self._get_container_state()
         if state == "running":
             return True
+        if self.status == "started":  # The container crashed we need to clean
+            yield from self.stop()
         return False
 
     @asyncio.coroutine
@@ -767,26 +769,9 @@ class DockerVM(BaseNode):
         """
         Pull image from docker repository
         """
-        log.info("Pull %s from docker hub", image)
-        response = yield from self.manager.http_query("POST", "images/create", params={"fromImage": image})
-        # The pull api will stream status via an HTTP JSON stream
-        content = ""
-        while True:
-            chunk = yield from response.content.read(1024)
-            if not chunk:
-                break
-            content += chunk.decode("utf-8")
-
-            try:
-                while True:
-                    content = content.lstrip(" \r\n\t")
-                    answer, index = json.JSONDecoder().raw_decode(content)
-                    if "progress" in answer:
-                        self.project.emit("log.info", {"message": "Pulling image {}:{}: {}".format(self._image, answer["id"], answer["progress"])})
-                    content = content[index:]
-            except ValueError:  # Partial JSON
-                pass
-        self.project.emit("log.info", {"message": "Success pulling image {}".format(self._image)})
+        def callback(msg):
+            self.project.emit("log.info", {"message": msg})
+        yield from self.manager.pull_image(image, progress_callback=callback)
 
     @asyncio.coroutine
     def _start_ubridge_capture(self, adapter_number, output_file):

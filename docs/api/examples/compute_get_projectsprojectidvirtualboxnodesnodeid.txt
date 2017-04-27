@@ -1,26 +1,28 @@
-curl -i -X GET 'http://localhost:3080/v2/compute/projects/a1e920ca-338a-4e9f-b363-aa607b09dd80/virtualbox/nodes/afdfa713-f35c-4749-b165-77e9afd1a853'
+curl -i -X GET 'http://localhost:3080/v2/compute/projects/a1e920ca-338a-4e9f-b363-aa607b09dd80/virtualbox/nodes/29d6dc03-42e5-4c3b-9892-4e69a3dbac7c'
 
-GET /v2/compute/projects/a1e920ca-338a-4e9f-b363-aa607b09dd80/virtualbox/nodes/afdfa713-f35c-4749-b165-77e9afd1a853 HTTP/1.1
+GET /v2/compute/projects/a1e920ca-338a-4e9f-b363-aa607b09dd80/virtualbox/nodes/29d6dc03-42e5-4c3b-9892-4e69a3dbac7c HTTP/1.1
 
 
 
 HTTP/1.1 200
-Content-Length: 435
+Connection: close
+Content-Length: 465
 Content-Type: application/json
-Date: Thu, 03 Nov 2016 17:19:58 GMT
-Server: Python/3.5 GNS3/2.0.0dev4
+Date: Tue, 21 Mar 2017 09:31:52 GMT
+Server: Python/3.6 GNS3/2.0.0dev11
 X-Route: /v2/compute/projects/{project_id}/virtualbox/nodes/{node_id}
 
 {
     "acpi_shutdown": false,
     "adapter_type": "Intel PRO/1000 MT Desktop (82540EM)",
     "adapters": 0,
-    "console": 5000,
+    "console": 5004,
+    "console_type": "telnet",
     "headless": false,
     "linked_clone": false,
     "name": "VMTEST",
     "node_directory": null,
-    "node_id": "afdfa713-f35c-4749-b165-77e9afd1a853",
+    "node_id": "29d6dc03-42e5-4c3b-9892-4e69a3dbac7c",
     "project_id": "a1e920ca-338a-4e9f-b363-aa607b09dd80",
     "ram": 0,
     "status": "stopped",

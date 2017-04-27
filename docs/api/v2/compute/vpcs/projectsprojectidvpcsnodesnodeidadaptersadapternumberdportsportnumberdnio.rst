@@ -9,15 +9,15 @@ Add a NIO to a VPCS instance
 
 Parameters
 **********
-- **adapter_number**: Network adapter where the nio is located
-- **node_id**: Node UUID
 - **project_id**: Project UUID
+- **node_id**: Node UUID
+- **adapter_number**: Network adapter where the nio is located
 - **port_number**: Port where the nio should be added
 
 Response status codes
 **********************
-- **400**: Invalid request
 - **201**: NIO created
+- **400**: Invalid request
 - **404**: Instance doesn't exist
 
 Sample session
@@ -33,16 +33,16 @@ Remove a NIO from a VPCS instance
 
 Parameters
 **********
-- **adapter_number**: Network adapter where the nio is located
-- **node_id**: Node UUID
 - **project_id**: Project UUID
+- **node_id**: Node UUID
+- **adapter_number**: Network adapter where the nio is located
 - **port_number**: Port from where the nio should be removed
 
 Response status codes
 **********************
+- **204**: NIO deleted
 - **400**: Invalid request
 - **404**: Instance doesn't exist
-- **204**: NIO deleted
 
 Sample session
 ***************

@@ -21,7 +21,6 @@ import urllib
 import asyncio
 import aiohttp
 import logging
-import urllib
 import traceback
 import jsonschema
 
@@ -41,16 +40,15 @@ from ..config import Config
 def parse_request(request, input_schema, raw):
     """Parse body of request and raise HTTP errors in case of problems"""
 
-    content_length = request.content_length
-    if content_length is not None and content_length > 0 and not raw:
+    request.json = {}
+    if not raw:
         body = yield from request.read()
-        try:
-            request.json = json.loads(body.decode('utf-8'))
-        except ValueError as e:
-            request.json = {"malformed_json": body.decode('utf-8')}
-            raise aiohttp.web.HTTPBadRequest(text="Invalid JSON {}".format(e))
-    else:
-        request.json = {}
+        if body:
+            try:
+                request.json = json.loads(body.decode('utf-8'))
+            except ValueError as e:
+                request.json = {"malformed_json": body.decode('utf-8')}
+                raise aiohttp.web.HTTPBadRequest(text="Invalid JSON {}".format(e))
 
     # Parse the query string
     if len(request.query_string) > 0:
@@ -115,7 +113,7 @@ class Route(object):
             return
 
         if "AUTHORIZATION" in request.headers:
-            if request.headers["AUTHORIZATION"] == aiohttp.helpers.BasicAuth(user, password).encode():
+            if request.headers["AUTHORIZATION"] == aiohttp.helpers.BasicAuth(user, password, "utf-8").encode():
                 return
 
         log.error("Invalid auth. Username should %s", user)

@@ -103,7 +103,15 @@ class ServerHandler:
         description="Retrieve gui settings from the server. Temporary will we removed in later release")
     def read_settings(request, response):
 
-        response.json(Controller.instance().settings)
+        settings = None
+        while True:
+            # The init of the server could take some times
+            # we ensure settings are loaded before returning them
+            settings = Controller.instance().settings
+            if settings is not None:
+                break
+            yield from asyncio.sleep(0.5)
+        response.json(settings)
 
     @Route.post(
         r"/settings",
@@ -113,8 +121,13 @@ class ServerHandler:
         })
     def write_settings(request, response):
         controller = Controller.instance()
+        if controller.settings is None:  # Server is not loaded ignore settings update to prevent buggy client sync issue
+            return
         controller.settings = request.json
-        controller.save()
+        try:
+            controller.save()
+        except (OSError, PermissionError) as e:
+            raise HTTPConflict(text="Can't save the settings {}".format(str(e)))
         response.json(controller.settings)
         response.set_status(201)
 
@@ -150,7 +163,7 @@ class ServerHandler:
             # If something is wrong we log the info to the log and we hope the log will be include correctly to the debug export
             log.error("Could not copy VMware VMX file {}".format(e), exc_info=1)
 
-        for compute in Controller.instance().computes.values():
+        for compute in list(Controller.instance().computes.values()):
             try:
                 r = yield from compute.get("/debug", raw=True)
                 data = r.body.decode("utf-8")

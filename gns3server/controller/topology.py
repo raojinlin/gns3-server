@@ -16,13 +16,14 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import os
+import html
 import json
 import copy
 import uuid
+import glob
 import shutil
 import zipfile
 import aiohttp
-import platform
 import jsonschema
 
 
@@ -36,7 +37,7 @@ import logging
 log = logging.getLogger(__name__)
 
 
-GNS3_FILE_FORMAT_REVISION = 6
+GNS3_FILE_FORMAT_REVISION = 8
 
 
 def _check_topology_schema(topo):
@@ -99,7 +100,9 @@ def project_to_topology(project):
         data["topology"]["drawings"].append(drawing.__json__(topology_dump=True))
     for compute in computes:
         if hasattr(compute, "__json__"):
-            data["topology"]["computes"].append(compute.__json__(topology_dump=True))
+            compute = compute.__json__(topology_dump=True)
+            if compute["compute_id"] not in ("vm", "local", ):
+                data["topology"]["computes"].append(compute)
     _check_topology_schema(data)
     return data
 
@@ -114,26 +117,97 @@ def load_topology(path):
             topo = json.load(f)
     except (OSError, UnicodeDecodeError, ValueError) as e:
         raise aiohttp.web.HTTPConflict(text="Could not load topology {}: {}".format(path, str(e)))
-    if "revision" not in topo or topo["revision"] < 5:
+
+    if topo.get("revision", 0) > GNS3_FILE_FORMAT_REVISION:
+        raise aiohttp.web.HTTPConflict(text="This project is designed for a more recent version of GNS3 please update GNS3 to version {} or later".format(topo["version"]))
+
+    changed = False
+    if "revision" not in topo or topo["revision"] < GNS3_FILE_FORMAT_REVISION:
         # If it's an old GNS3 file we need to convert it
         # first we backup the file
         shutil.copy(path, path + ".backup{}".format(topo.get("revision", 0)))
+        changed = True
+
+    if "revision" not in topo or topo["revision"] < 5:
         topo = _convert_1_3_later(topo, path)
-        _check_topology_schema(topo)
-        with open(path, "w+", encoding="utf-8") as f:
-            json.dump(topo, f, indent=4, sort_keys=True)
 
     # Version before GNS3 2.0 alpha 4
     if topo["revision"] < 6:
-        shutil.copy(path, path + ".backup{}".format(topo.get("revision", 0)))
         topo = _convert_2_0_0_alpha(topo, path)
+
+    # Version before GNS3 2.0 beta 3
+    if topo["revision"] < 7:
+        topo = _convert_2_0_0_beta_2(topo, path)
+
+    # Version before GNS3 2.1
+    if topo["revision"] < 8:
+        topo = _convert_2_0_0(topo, path)
+
+    try:
         _check_topology_schema(topo)
+    except aiohttp.web.HTTPConflict as e:
+        log.error("Can't load the topology %s", path)
+        raise e
+
+    if changed:
         with open(path, "w+", encoding="utf-8") as f:
             json.dump(topo, f, indent=4, sort_keys=True)
+    return topo
 
-    if topo["revision"] > GNS3_FILE_FORMAT_REVISION:
-        raise aiohttp.web.HTTPConflict(text="This project is designed for a more recent version of GNS3 please update GNS3 to version {} or later".format(topo["version"]))
-    _check_topology_schema(topo)
+
+def _convert_2_0_0(topo, topo_path):
+    """
+    Convert topologies from GNS3 2.0.0 to 2.1
+
+    Changes:
+     * Remove startup_script_path from VPCS and base config file for IOU and Dynamips
+    """
+    topo["revision"] = 8
+
+    for node in topo.get("topology", {}).get("nodes", []):
+        if "properties" in node:
+            if node["node_type"] == "vpcs":
+                if "startup_script_path" in node["properties"]:
+                    del node["properties"]["startup_script_path"]
+                if "startup_script" in node["properties"]:
+                    del node["properties"]["startup_script"]
+            elif node["node_type"] == "dynamips" or node["node_type"] == "iou":
+                if "startup_config" in node["properties"]:
+                    del node["properties"]["startup_config"]
+                if "private_config" in node["properties"]:
+                    del node["properties"]["private_config"]
+                if "startup_config_content" in node["properties"]:
+                    del node["properties"]["startup_config_content"]
+                if "private_config_content" in node["properties"]:
+                    del node["properties"]["private_config_content"]
+    return topo
+
+
+def _convert_2_0_0_beta_2(topo, topo_path):
+    """
+    Convert topologies from GNS3 2.0.0 beta 2 to beta 3.
+
+    Changes:
+     * Node id folders for dynamips
+    """
+    topo_dir = os.path.dirname(topo_path)
+    topo["revision"] = 7
+
+    for node in topo.get("topology", {}).get("nodes", []):
+        if node["node_type"] == "dynamips":
+            node_id = node["node_id"]
+            dynamips_id = node["properties"]["dynamips_id"]
+
+            dynamips_dir = os.path.join(topo_dir, "project-files", "dynamips")
+            node_dir = os.path.join(dynamips_dir, node_id)
+            try:
+                os.makedirs(os.path.join(node_dir, "configs"), exist_ok=True)
+                for path in glob.glob(os.path.join(glob.escape(dynamips_dir), "*_i{}_*".format(dynamips_id))):
+                    shutil.move(path, os.path.join(node_dir, os.path.basename(path)))
+                for path in glob.glob(os.path.join(glob.escape(dynamips_dir), "configs", "i{}_*".format(dynamips_id))):
+                    shutil.move(path, os.path.join(node_dir, "configs", os.path.basename(path)))
+            except OSError as e:
+                raise aiohttp.web.HTTPConflict(text="Can't convert project {}: {}".format(topo_path, str(e)))
     return topo
 
 
@@ -212,10 +286,16 @@ def _convert_1_3_later(topo, topo_path):
     for old_node in topo.get("nodes", []):
         node = {}
         node["console"] = old_node["properties"].get("console", None)
-        node["compute_id"] = server_id_to_compute_id[old_node["server_id"]]
+        try:
+            node["compute_id"] = server_id_to_compute_id[old_node["server_id"]]
+        except KeyError:
+            node["compute_id"] = "local"
         node["console_type"] = old_node["properties"].get("console_type", "telnet")
-        node["name"] = old_node["label"]["text"]
-        node["label"] = _convert_label(old_node["label"])
+        if "label" in old_node:
+            node["name"] = old_node["label"]["text"]
+            node["label"] = _convert_label(old_node["label"])
+        else:
+            node["name"] = old_node["properties"]["name"]
         node["node_id"] = old_node.get("vm_id", str(uuid.uuid4()))
 
         node["symbol"] = old_node.get("symbol", None)
@@ -284,18 +364,30 @@ def _convert_1_3_later(topo, topo_path):
                 node["properties"]["ram"] = PLATFORMS_DEFAULT_RAM[old_node["type"].lower()]
         elif old_node["type"] == "VMwareVM":
             node["node_type"] = "vmware"
+            node["properties"]["linked_clone"] = old_node.get("linked_clone", False)
             if node["symbol"] is None:
                 node["symbol"] = ":/symbols/vmware_guest.svg"
         elif old_node["type"] == "VirtualBoxVM":
             node["node_type"] = "virtualbox"
+            node["properties"]["linked_clone"] = old_node.get("linked_clone", False)
             if node["symbol"] is None:
                 node["symbol"] = ":/symbols/vbox_guest.svg"
         elif old_node["type"] == "IOUDevice":
             node["node_type"] = "iou"
+            node["port_name_format"] = old_node.get("port_name_format", "Ethernet{segment0}/{port0}")
+            node["port_segment_size"] = int(old_node.get("port_segment_size", "4"))
+            if node["symbol"] is None:
+                if "l2" in node["properties"].get("path", ""):
+                    node["symbol"] = ":/symbols/multilayer_switch.svg"
+                else:
+                    node["symbol"] = ":/symbols/router.svg"
+
         elif old_node["type"] == "Cloud":
-            _create_cloud(node, old_node, ":/symbols/cloud.svg")
+            symbol = old_node.get("symbol", ":/symbols/cloud.svg")
+            old_node["ports"] = _create_cloud(node, old_node, symbol)
         elif old_node["type"] == "Host":
-            _create_cloud(node, old_node, ":/symbols/computer.svg")
+            symbol = old_node.get("symbol", ":/symbols/computer.svg")
+            old_node["ports"] = _create_cloud(node, old_node, symbol)
         else:
             raise NotImplementedError("Conversion of {} is not supported".format(old_node["type"]))
 
@@ -305,6 +397,8 @@ def _convert_1_3_later(topo, topo_path):
 
         node_id_to_node_uuid[old_node["id"]] = node["node_id"]
         for port in old_node.get("ports", []):
+            if node["node_type"] in ("ethernet_hub", "ethernet_switch"):
+                port["port_number"] -= 1
             ports[port["id"]] = port
         new_topo["topology"]["nodes"].append(node)
 
@@ -372,13 +466,13 @@ def _convert_1_3_later(topo, topo_path):
         svg = '<svg height="{height}" width="{width}"><text fill="{fill}" fill-opacity="{opacity}" font-family="{family}" font-size="{size}" font-weight="{weight}" font-style="{style}">{text}</text></svg>'.format(
             height=int(font_info[1]) * 2,
             width=int(font_info[1]) * len(note["text"]),
-            fill="#" + note["color"][-6:],
+            fill="#" + note.get("color", "#00000000")[-6:],
             opacity=round(1.0 / 255 * int(note.get("color", "#ffffffff")[:3][-2:], base=16), 2),  # Extract the alpha channel from the hexa version
             family=font_info[0],
             size=int(font_info[1]),
             weight=weight,
             style=style,
-            text=note["text"]
+            text=html.escape(note["text"])
         )
         new_note = {
             "drawing_id": str(uuid.uuid4()),
@@ -465,7 +559,7 @@ def _convert_label(label):
     """
     style = qt_font_to_style(label.get("font"), label.get("color"))
     return {
-        "text": label["text"],
+        "text": html.escape(label["text"]),
         "rotation": 0,
         "style": style,
         "x": int(label["x"]),
@@ -481,6 +575,7 @@ def _create_cloud(node, old_node, icon):
     del old_node["properties"]["nios"]
 
     ports = []
+    keep_ports = []
     for old_port in old_node.get("ports", []):
         if old_port["name"].startswith("nio_gen_eth"):
             port_type = "ethernet"
@@ -490,6 +585,8 @@ def _create_cloud(node, old_node, icon):
             port_type = "tap"
         elif old_port["name"].startswith("nio_udp"):
             port_type = "udp"
+        elif old_port["name"].startswith("nio_nat"):
+            continue
         else:
             raise NotImplementedError("The conversion of cloud with {} is not supported".format(old_port["name"]))
 
@@ -510,10 +607,12 @@ def _create_cloud(node, old_node, icon):
                 "port_number": len(ports) + 1,
                 "type": port_type
             }
+        keep_ports.append(old_port)
         ports.append(port)
 
     node["properties"]["ports_mapping"] = ports
     node["properties"]["interfaces"] = []
+    return keep_ports
 
 
 def _convert_snapshots(topo_dir):

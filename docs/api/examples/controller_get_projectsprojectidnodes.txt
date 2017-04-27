@@ -1,14 +1,15 @@
-curl -i -X GET 'http://localhost:3080/v2/projects/a75e8c91-cb8a-4d9f-8d66-8180793b3c1c/nodes'
+curl -i -X GET 'http://localhost:3080/v2/projects/387fb37d-314e-43b4-8fbd-4f1266662100/nodes'
 
-GET /v2/projects/a75e8c91-cb8a-4d9f-8d66-8180793b3c1c/nodes HTTP/1.1
+GET /v2/projects/387fb37d-314e-43b4-8fbd-4f1266662100/nodes HTTP/1.1
 
 
 
 HTTP/1.1 200
-Content-Length: 1305
+Connection: close
+Content-Length: 1303
 Content-Type: application/json
-Date: Thu, 03 Nov 2016 17:20:01 GMT
-Server: Python/3.5 GNS3/2.0.0dev4
+Date: Tue, 21 Mar 2017 09:31:59 GMT
+Server: Python/3.6 GNS3/2.0.0dev11
 X-Route: /v2/projects/{project_id}/nodes
 
 [
@@ -16,7 +17,7 @@ X-Route: /v2/projects/{project_id}/nodes
         "command_line": null,
         "compute_id": "example.com",
         "console": 2048,
-        "console_host": "<MagicMock name='mock.console_host' id='4552667992'>",
+        "console_host": "<MagicMock name='mock.console_host' id='4439344576'>",
         "console_type": null,
         "first_port_name": null,
         "height": 59,
@@ -29,7 +30,7 @@ X-Route: /v2/projects/{project_id}/nodes
         },
         "name": "test",
         "node_directory": null,
-        "node_id": "efe73b73-94c6-40d8-bdaf-df0e2948940c",
+        "node_id": "af74aa64-c387-4903-9879-16e5fe26c0df",
         "node_type": "vpcs",
         "port_name_format": "Ethernet{0}",
         "port_segment_size": 0,
@@ -42,10 +43,10 @@ X-Route: /v2/projects/{project_id}/nodes
                 "link_type": "ethernet",
                 "name": "Ethernet0",
                 "port_number": 0,
-                "short_name": "e0/0"
+                "short_name": "e0"
             }
         ],
-        "project_id": "a75e8c91-cb8a-4d9f-8d66-8180793b3c1c",
+        "project_id": "387fb37d-314e-43b4-8fbd-4f1266662100",
         "properties": {
             "startup_script": "echo test"
         },

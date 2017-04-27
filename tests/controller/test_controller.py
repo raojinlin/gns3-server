@@ -24,10 +24,7 @@ import aiohttp
 from unittest.mock import MagicMock
 from tests.utils import AsyncioMagicMock, asyncio_patch
 
-from gns3server.controller import Controller
 from gns3server.controller.compute import Compute
-from gns3server.controller.project import Project
-from gns3server.config import Config
 from gns3server.version import __version__
 
 
@@ -42,7 +39,7 @@ def test_save(controller, controller_config_path):
         assert data["gns3vm"] == controller.gns3vm.__json__()
 
 
-def test_load(controller, controller_config_path, async_run):
+def test_load_controller_settings(controller, controller_config_path, async_run):
     controller.save()
     with open(controller_config_path) as f:
         data = json.load(f)
@@ -56,27 +53,12 @@ def test_load(controller, controller_config_path, async_run):
             "compute_id": "test1"
         }
     ]
-    data["settings"] = {"IOU": True}
+    data["settings"] = {"IOU": {"test": True}}
     data["gns3vm"] = {"vmname": "Test VM"}
     with open(controller_config_path, "w+") as f:
         json.dump(data, f)
-    async_run(controller.load())
+    assert len(async_run(controller._load_controller_settings())) == 1
     assert controller.settings["IOU"]
-    assert controller.computes["test1"].__json__() == {
-        "compute_id": "test1",
-        "connected": False,
-        "host": "localhost",
-        "port": 8000,
-        "protocol": "http",
-        "user": "admin",
-        "name": "http://admin@localhost:8000",
-        "cpu_usage_percent": None,
-        "memory_usage_percent": None,
-        "capabilities": {
-            "version": None,
-            "node_types": []
-        }
-    }
     assert controller.gns3vm.settings["vmname"] == "Test VM"
 
 
@@ -104,7 +86,7 @@ def test_import_computes_1_x(controller, controller_config_path, async_run):
     with open(os.path.join(config_dir, "gns3_gui.conf"), "w+") as f:
         json.dump(gns3_gui_conf, f)
 
-    async_run(controller.load())
+    async_run(controller._load_controller_settings())
     for compute in controller.computes.values():
         if compute.id != "local":
             assert len(compute.id) == 36
@@ -146,7 +128,7 @@ def test_import_gns3vm_1_x(controller, controller_config_path, async_run):
         json.dump(gns3_gui_conf, f)
 
     controller.gns3vm.settings["engine"] = None
-    async_run(controller.load())
+    async_run(controller._load_controller_settings())
     assert controller.gns3vm.settings["engine"] == "vmware"
     assert controller.gns3vm.settings["enable"]
     assert controller.gns3vm.settings["headless"]
@@ -202,7 +184,7 @@ def test_import_remote_gns3vm_1_x(controller, controller_config_path, async_run)
         json.dump(gns3_gui_conf, f)
 
     with asyncio_patch("gns3server.controller.compute.Compute.connect"):
-        async_run(controller.load())
+        async_run(controller._load_controller_settings())
     assert controller.gns3vm.settings["engine"] == "remote"
     assert controller.gns3vm.settings["vmname"] == "http://127.0.0.1:3081"
 
@@ -210,7 +192,8 @@ def test_import_remote_gns3vm_1_x(controller, controller_config_path, async_run)
 def test_settings(controller):
     controller._notification = MagicMock()
     controller.settings = {"a": 1}
-    controller._notification.emit.assert_called_with("settings.updated", {"a": 1})
+    controller._notification.emit.assert_called_with("settings.updated", controller.settings)
+    assert controller.settings["modification_uuid"] is not None
 
 
 def test_load_projects(controller, projects_dir, async_run):
@@ -376,7 +359,8 @@ def test_getProject(controller, async_run):
 def test_start(controller, async_run):
     controller.gns3vm.settings = {
         "enable": False,
-        "engine": "vmware"
+        "engine": "vmware",
+        "vmname": "GNS3 VM"
     }
     with asyncio_patch("gns3server.controller.compute.Compute.connect") as mock:
         async_run(controller.start())
@@ -390,7 +374,8 @@ def test_start_vm(controller, async_run):
     """
     controller.gns3vm.settings = {
         "enable": True,
-        "engine": "vmware"
+        "engine": "vmware",
+        "vmname": "GNS3 VM"
     }
     with asyncio_patch("gns3server.controller.gns3vm.vmware_gns3_vm.VMwareGNS3VM.start") as mock:
         with asyncio_patch("gns3server.controller.compute.Compute.connect") as mock_connect:
@@ -415,7 +400,8 @@ def test_stop_vm(controller, async_run):
     controller.gns3vm.settings = {
         "enable": True,
         "engine": "vmware",
-        "when_exit": "stop"
+        "when_exit": "stop",
+        "vmname": "GNS3 VM"
     }
     controller.gns3vm.current_engine().running = True
     with asyncio_patch("gns3server.controller.gns3vm.vmware_gns3_vm.VMwareGNS3VM.stop") as mock:
@@ -430,7 +416,8 @@ def test_suspend_vm(controller, async_run):
     controller.gns3vm.settings = {
         "enable": True,
         "engine": "vmware",
-        "when_exit": "suspend"
+        "when_exit": "suspend",
+        "vmname": "GNS3 VM"
     }
     controller.gns3vm.current_engine().running = True
     with asyncio_patch("gns3server.controller.gns3vm.vmware_gns3_vm.VMwareGNS3VM.suspend") as mock:
@@ -445,7 +432,8 @@ def test_keep_vm(controller, async_run):
     controller.gns3vm.settings = {
         "enable": True,
         "engine": "vmware",
-        "when_exit": "keep"
+        "when_exit": "keep",
+        "vmname": "GNS3 VM"
     }
     controller.gns3vm.current_engine().running = True
     with asyncio_patch("gns3server.controller.gns3vm.vmware_gns3_vm.VMwareGNS3VM.suspend") as mock:
@@ -460,3 +448,43 @@ def test_get_free_project_name(controller, async_run):
     async_run(controller.add_project(project_id=str(uuid.uuid4()), name="Test-1"))
     assert controller.get_free_project_name("Test") == "Test-2"
     assert controller.get_free_project_name("Hello") == "Hello"
+
+
+def test_appliance_templates(controller):
+    assert len(controller.appliance_templates) > 0
+    for appliance in controller.appliance_templates.values():
+        assert appliance.__json__()["status"] != "broken"
+
+
+def test_load_base_files(controller, config, tmpdir):
+    config.set_section_config("Server", {"configs_path": str(tmpdir)})
+
+    with open(str(tmpdir / 'iou_l2_base_startup-config.txt'), 'w+') as f:
+        f.write('test')
+
+    controller.load_base_files()
+    assert os.path.exists(str(tmpdir / 'iou_l3_base_startup-config.txt'))
+
+    # Check is the file has not been overwrite
+    with open(str(tmpdir / 'iou_l2_base_startup-config.txt')) as f:
+        assert f.read() == 'test'
+
+
+def test_appliance_templates(controller, async_run):
+    controller.load_appliances()
+    assert len(controller.appliance_templates) > 0
+
+
+def test_load_appliances(controller):
+    controller._settings = {
+        "Qemu": {
+            "vms": [
+                {
+                    "name": "Test"
+                }
+            ]
+        }
+    }
+    controller.load_appliances()
+    assert "Test" in [appliance.name for appliance in controller.appliances.values()]
+    assert "Cloud" in [appliance.name for appliance in controller.appliances.values()]

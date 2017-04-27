@@ -19,13 +19,16 @@
 VirtualBox VM instance.
 """
 
-import sys
-import shlex
 import re
 import os
-import tempfile
+import sys
 import json
+import uuid
+import shlex
+import shutil
+import socket
 import asyncio
+import tempfile
 import xml.etree.ElementTree as ET
 
 from gns3server.utils import parse_version
@@ -205,10 +208,21 @@ class VirtualBoxVM(BaseNode):
         """
         Fix the VM uuid in the case of linked clone
         """
-        tree = ET.parse(self._linked_vbox_file())
-        machine = tree.getroot().find("{http://www.virtualbox.org/}Machine")
-        machine.set("uuid", "{" + self.id + "}")
-        tree.write(self._linked_vbox_file())
+        if os.path.exists(self._linked_vbox_file()):
+            tree = ET.parse(self._linked_vbox_file())
+            machine = tree.getroot().find("{http://www.virtualbox.org/}Machine")
+            if machine is not None and machine.get("uuid") != "{" + self.id + "}":
+
+                for image in tree.getroot().findall("{http://www.virtualbox.org/}Image"):
+                    currentSnapshot = machine.get("currentSnapshot")
+                    if currentSnapshot:
+                        newSnapshot = re.sub("\{.*\}", "{" + str(uuid.uuid4()) + "}", currentSnapshot)
+                    shutil.move(os.path.join(self.working_dir, self._vmname, "Snapshots", currentSnapshot) + ".vdi",
+                                os.path.join(self.working_dir, self._vmname, "Snapshots", newSnapshot) + ".vdi")
+                    image.set("uuid", newSnapshot)
+
+                machine.set("uuid", "{" + self.id + "}")
+                tree.write(self._linked_vbox_file())
 
     @asyncio.coroutine
     def check_hw_virtualization(self):
@@ -289,6 +303,16 @@ class VirtualBoxVM(BaseNode):
             if self.acpi_shutdown:
                 # use ACPI to shutdown the VM
                 result = yield from self._control_vm("acpipowerbutton")
+                trial = 0
+                while True:
+                    vm_state = yield from self._get_vm_state()
+                    if vm_state == "poweroff":
+                        break
+                    yield from asyncio.sleep(1)
+                    trial += 1
+                    if trial >= 120:
+                        yield from self._control_vm("poweroff")
+                        break
                 self.status = "stopped"
                 log.debug("ACPI shutdown result: {}".format(result))
             else:
@@ -600,7 +624,16 @@ class VirtualBoxVM(BaseNode):
         :param vmname: VirtualBox VM name
         """
 
+        if vmname == self._vmname:
+            return
+
         if self.linked_clone:
+            if self.status == "started":
+                raise VirtualBoxError("You can't change the name of running VM {}".format(self._name))
+            # We can't rename a VM to name that already exists
+            vms = yield from self.manager.list_vms(allow_clone=True)
+            if vmname in [vm["vmname"] for vm in vms]:
+                raise VirtualBoxError("You can't change the name to {} it's already use in VirtualBox".format(vmname))
             yield from self._modify_vm('--name "{}"'.format(vmname))
 
         log.info("VirtualBox VM '{name}' [{id}] has set the VM name to '{vmname}'".format(name=self.name, id=self.id, vmname=vmname))
@@ -906,7 +939,7 @@ class VirtualBoxVM(BaseNode):
                                      writer=self._remote_pipe,
                                      binary=True,
                                      echo=True)
-        self._telnet_server = yield from asyncio.start_server(server.run, '127.0.0.1', self.console)
+        self._telnet_server = yield from asyncio.start_server(server.run, self._manager.port_manager.console_host, self.console)
 
     @asyncio.coroutine
     def _stop_remote_console(self):
@@ -981,7 +1014,9 @@ class VirtualBoxVM(BaseNode):
 
         if self.ubridge:
             yield from self._ubridge_send("bridge delete {name}".format(name="VBOX-{}-{}".format(self._id, adapter_number)))
-            yield from self._control_vm("setlinkstate{} off".format(adapter_number + 1))
+            vm_state = yield from self._get_vm_state()
+            if vm_state == "running":
+                yield from self._control_vm("setlinkstate{} off".format(adapter_number + 1))
         else:
             vm_state = yield from self._get_vm_state()
             if vm_state == "running":

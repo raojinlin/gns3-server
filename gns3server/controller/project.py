@@ -19,6 +19,7 @@ import re
 import os
 import json
 import uuid
+import copy
 import shutil
 import asyncio
 import aiohttp
@@ -286,11 +287,15 @@ class Project:
         if base_name is None:
             return None
         base_name = re.sub(r"[ ]", "", base_name)
-        self.remove_allocated_node_name(base_name)
         if '{0}' in base_name or '{id}' in base_name:
             # base name is a template, replace {0} or {id} by an unique identifier
             for number in range(1, 1000000):
-                name = base_name.format(number, id=number)
+                try:
+                    name = base_name.format(number, id=number, name="Node")
+                except KeyError as e:
+                    raise aiohttp.web.HTTPConflict(text="{" + e.args[0] + "} is not a valid replacement string in the node name")
+                except (ValueError, IndexError) as e:
+                    raise aiohttp.web.HTTPConflict(text="{} is not a valid replacement string in the node name".format(base_name))
                 if name not in self._allocated_node_names:
                     self._allocated_node_names.add(name)
                     return name
@@ -306,31 +311,43 @@ class Project:
                     return name
         raise aiohttp.web.HTTPConflict(text="A node name could not be allocated (node limit reached?)")
 
-    def has_allocated_node_name(self, name):
-        """
-        Returns either a node name is already allocated or not.
-
-        :param name: node name
-
-        :returns: boolean
-        """
-
-        if name in self._allocated_node_names:
-            return True
-        return False
-
     def update_node_name(self, node, new_name):
 
         if new_name and node.name != new_name:
+            self.remove_allocated_node_name(node.name)
             return self.update_allocated_node_name(new_name)
         return new_name
 
     @open_required
     @asyncio.coroutine
-    def add_node(self, compute, name, node_id, node_type=None, **kwargs):
+    def add_node_from_appliance(self, appliance_id, x=0, y=0, compute_id=None):
+        """
+        Create a node from an appliance
+        """
+        try:
+            template = copy.copy(self.controller.appliances[appliance_id].data)
+        except KeyError:
+            msg = "Appliance {} doesn't exist".format(appliance_id)
+            log.error(msg)
+            raise aiohttp.web.HTTPNotFound(text=msg)
+        template["x"] = x
+        template["y"] = y
+        node_type = template.pop("node_type")
+        compute = self.controller.get_compute(template.pop("server", compute_id))
+        name = template.pop("name")
+        default_name_format = template.pop("default_name_format", "{name}-{0}")
+        name = default_name_format.replace("{name}", name)
+        node_id = str(uuid.uuid4())
+        node = yield from self.add_node(compute, name, node_id, node_type=node_type, **template)
+        return node
+
+    @open_required
+    @asyncio.coroutine
+    def add_node(self, compute, name, node_id, dump=True, node_type=None, **kwargs):
         """
         Create a node or return an existing node
 
+        :param dump: Dump topology to disk
         :param kwargs: See the documentation of node
         """
         if node_id in self._nodes:
@@ -362,7 +379,8 @@ class Project:
         yield from node.create()
         self._nodes[node.id] = node
         self.controller.notification.emit("node.created", node.__json__())
-        self.dump()
+        if dump:
+            self.dump()
         return node
 
     @locked_coroutine
@@ -414,17 +432,19 @@ class Project:
 
     @open_required
     @asyncio.coroutine
-    def add_drawing(self, drawing_id=None, **kwargs):
+    def add_drawing(self, drawing_id=None, dump=True, **kwargs):
         """
         Create an drawing or return an existing drawing
 
+        :param dump: Dump the topology to disk
         :param kwargs: See the documentation of drawing
         """
         if drawing_id not in self._drawings:
             drawing = Drawing(self, drawing_id=drawing_id, **kwargs)
             self._drawings[drawing.id] = drawing
             self.controller.notification.emit("drawing.created", drawing.__json__())
-            self.dump()
+            if dump:
+                self.dump()
             return drawing
         return self._drawings[drawing_id]
 
@@ -448,15 +468,18 @@ class Project:
 
     @open_required
     @asyncio.coroutine
-    def add_link(self, link_id=None):
+    def add_link(self, link_id=None, dump=True):
         """
         Create a link. By default the link is empty
+
+        :param dump: Dump topology to disk
         """
         if link_id and link_id in self._links:
-            return self._links[link.id]
+            return self._links[link_id]
         link = UDPLink(self, link_id=link_id)
         self._links[link.id] = link
-        self.dump()
+        if dump:
+            self.dump()
         return link
 
     @open_required
@@ -539,7 +562,7 @@ class Project:
     @asyncio.coroutine
     def close(self, ignore_notification=False):
         yield from self.stop_all()
-        for compute in self._project_created_on_compute:
+        for compute in list(self._project_created_on_compute):
             try:
                 yield from compute.post("/projects/{}/close".format(self._id), dont_connect=True)
             # We don't care if a compute is down at this step
@@ -638,29 +661,36 @@ class Project:
             for node in topology.get("nodes", []):
                 compute = self.controller.get_compute(node.pop("compute_id"))
                 name = node.pop("name")
-                node_id = node.pop("node_id")
-                yield from self.add_node(compute, name, node_id, **node)
+                node_id = node.pop("node_id", str(uuid.uuid4()))
+                yield from self.add_node(compute, name, node_id, dump=False, **node)
             for link_data in topology.get("links", []):
                 link = yield from self.add_link(link_id=link_data["link_id"])
                 for node_link in link_data["nodes"]:
                     node = self.get_node(node_link["node_id"])
-                    yield from link.add_node(node, node_link["adapter_number"], node_link["port_number"], label=node_link.get("label"))
+                    yield from link.add_node(node, node_link["adapter_number"], node_link["port_number"], label=node_link.get("label"), dump=False)
             for drawing_data in topology.get("drawings", []):
-                drawing = yield from self.add_drawing(**drawing_data)
+                yield from self.add_drawing(dump=False, **drawing_data)
 
+            self.dump()
         # We catch all error to be able to rollback the .gns3 to the previous state
         except Exception as e:
-            for compute in self._project_created_on_compute:
+            for compute in list(self._project_created_on_compute):
                 try:
                     yield from compute.post("/projects/{}/close".format(self._id))
                 # We don't care if a compute is down at this step
                 except (ComputeError, aiohttp.web.HTTPNotFound, aiohttp.web.HTTPConflict):
                     pass
-            if os.path.exists(path + ".backup"):
-                shutil.copy(path + ".backup", path)
+            try:
+                if os.path.exists(path + ".backup"):
+                    shutil.copy(path + ".backup", path)
+            except (PermissionError, OSError):
+                pass
             self._status = "closed"
             self._loading = False
-            raise e
+            if isinstance(e, ComputeError):
+                raise aiohttp.web.HTTPConflict(text=str(e))
+            else:
+                raise e
         try:
             os.remove(path + ".backup")
         except OSError:
@@ -696,13 +726,17 @@ class Project:
         if self._status == "closed":
             yield from self.open()
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            zipstream = yield from export_project(self, tmpdir, keep_compute_id=True, allow_all_nodes=True)
-            with open(os.path.join(tmpdir, "project.gns3p"), "wb+") as f:
-                for data in zipstream:
-                    f.write(data)
-            with open(os.path.join(tmpdir, "project.gns3p"), "rb") as f:
-                project = yield from import_project(self._controller, str(uuid.uuid4()), f, location=location, name=name, keep_compute_id=True)
+        self.dump()
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                zipstream = yield from export_project(self, tmpdir, keep_compute_id=True, allow_all_nodes=True)
+                with open(os.path.join(tmpdir, "project.gns3p"), "wb+") as f:
+                    for data in zipstream:
+                        f.write(data)
+                with open(os.path.join(tmpdir, "project.gns3p"), "rb") as f:
+                    project = yield from import_project(self._controller, str(uuid.uuid4()), f, location=location, name=name, keep_compute_id=True)
+        except OSError as e:
+            raise aiohttp.web.HTTPConflict(text="Can not duplicate project: {}".format(str(e)))
 
         if previous_status == "closed":
             yield from self.close()
