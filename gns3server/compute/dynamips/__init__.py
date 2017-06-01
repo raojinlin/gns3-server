@@ -119,7 +119,6 @@ class Dynamips(BaseManager):
 
         super().__init__()
         Dynamips._ghost_ios_lock = asyncio.Lock()
-        self._devices = {}
         self._ghost_files = set()
         self._dynamips_path = None
         self._dynamips_ids = {}
@@ -165,47 +164,6 @@ class Dynamips(BaseManager):
         self._dynamips_ids.setdefault(project_id, set())
         if dynamips_id in self._dynamips_ids[project_id]:
             self._dynamips_ids[project_id].remove(dynamips_id)
-
-    @asyncio.coroutine
-    def unload(self):
-
-        yield from BaseManager.unload(self)
-
-        tasks = []
-        for device in self._devices.values():
-            tasks.append(asyncio.async(device.hypervisor.stop()))
-
-        if tasks:
-            done, _ = yield from asyncio.wait(tasks)
-            for future in done:
-                try:
-                    future.result()
-                except (Exception, GeneratorExit) as e:
-                    log.error("Could not stop device hypervisor {}".format(e), exc_info=1)
-                    continue
-
-    @asyncio.coroutine
-    def project_closing(self, project):
-        """
-        Called when a project is about to be closed.
-
-        :param project: Project instance
-        """
-
-        yield from super().project_closing(project)
-        # delete the Dynamips devices corresponding to the project
-        tasks = []
-        for device in self._devices.values():
-            if device.project.id == project.id:
-                tasks.append(asyncio.async(device.delete()))
-
-        if tasks:
-            done, _ = yield from asyncio.wait(tasks)
-            for future in done:
-                try:
-                    future.result()
-                except (Exception, GeneratorExit) as e:
-                    log.error("Could not delete device {}".format(e), exc_info=1)
 
     @asyncio.coroutine
     def project_closed(self, project):

@@ -161,6 +161,7 @@ class EthernetSwitch(Device):
         Deletes this Ethernet switch.
         """
 
+        log.info("Ethernet switch: '{name}' [{id}]: is closing".format(name=self.name, id=self.id))
         for nio in self._nios.values():
             if nio and isinstance(nio, NIOUDP):
                 self.manager.port_manager.release_udp_port(nio.lport, self._project)
