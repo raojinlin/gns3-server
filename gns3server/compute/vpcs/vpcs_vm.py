@@ -61,7 +61,7 @@ class VPCSVM(BaseNode):
 
     def __init__(self, name, node_id, project, manager, console=None, startup_script=None):
 
-        super().__init__(name, node_id, project, manager, console=console, wrap_console=True)
+        super().__init__(name, node_id, project, manager, console=console, wrap_console=False)
         self._process = None
         self._vpcs_stdout_file = ""
         self._vpcs_version = None
@@ -151,11 +151,11 @@ class VPCSVM(BaseNode):
         :returns: path to VPCS
         """
 
-        search_path = self._manager.config.get_section_config("VPCS").get("vpcs_path", "vpcs")
-        path = shutil.which(search_path)
-        # shutil.which return None if the path doesn't exists
+        path = shutil.which("pyvpcs")
         if not path:
-            return search_path
+            path = shutil.which("vpcs")
+        if not path:
+            path = self._manager.config.get_section_config("VPCS").get("vpcs_path", "pyvpcs")
         return path
 
     @BaseNode.name.setter
@@ -218,6 +218,8 @@ class VPCSVM(BaseNode):
         try:
             output = yield from subprocess_check_output(self._vpcs_path(), "-v", cwd=self.working_dir)
             match = re.search("Welcome to Virtual PC Simulator, version ([0-9a-z\.]+)", output)
+            if not match:
+                match = re.search("^([0-9]+\.[0-9]+\.[0-9]+)", output)
             if match:
                 version = match.group(1)
                 self._vpcs_version = parse_version(version)
@@ -514,7 +516,7 @@ class VPCSVM(BaseNode):
         """
 
         command = [self._vpcs_path()]
-        command.extend(["-p", str(self._internal_console_port)])  # listen to console port
+        command.extend(["-p", str(self.console)])  # listen to console port
         command.extend(["-m", str(self._manager.get_mac_id(self.id))])   # the unique ID is used to set the MAC address offset
         command.extend(["-i", "1"])  # option to start only one VPC instance
         command.extend(["-F"])  # option to avoid the daemonization of VPCS

@@ -54,6 +54,7 @@ setup(
         "console_scripts": [
             "gns3server = gns3server.main:main",
             "gns3vmnet = gns3server.utils.vmnet:main",
+            "pyvpcs = gns3server.compute.vpcs.vpcs_device:main",
             "gns3loopback = gns3server.utils.windows_loopback:main"
         ]
     },

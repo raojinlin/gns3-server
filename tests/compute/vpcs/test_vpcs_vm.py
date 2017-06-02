@@ -58,6 +58,12 @@ def test_vm_check_vpcs_version(loop, vm, manager):
         assert vm._vpcs_version == parse_version("0.9")
 
 
+def test_vm_check_pyvpcs_version(loop, vm, manager):
+    with asyncio_patch("gns3server.compute.vpcs.vpcs_vm.subprocess_check_output", return_value="1.0.9"):
+        loop.run_until_complete(asyncio.async(vm._check_vpcs_version()))
+        assert vm._vpcs_version == parse_version("1.0.9")
+
+
 def test_vm_check_vpcs_version_0_6_1(loop, vm, manager):
     with asyncio_patch("gns3server.compute.vpcs.vpcs_vm.subprocess_check_output", return_value="Welcome to Virtual PC Simulator, version 0.6.1"):
         loop.run_until_complete(asyncio.async(vm._check_vpcs_version()))
@@ -93,26 +99,25 @@ def test_start(loop, vm, async_run):
 
         with asyncio_patch("gns3server.compute.vpcs.vpcs_vm.VPCSVM._check_requirements", return_value=True):
             with asyncio_patch("asyncio.create_subprocess_exec", return_value=process) as mock_exec:
-                with asyncio_patch("gns3server.compute.vpcs.vpcs_vm.VPCSVM.start_wrap_console"):
-                    nio = VPCS.instance().create_nio({"type": "nio_udp", "lport": 4242, "rport": 4243, "rhost": "127.0.0.1"})
-                    async_run(vm.port_add_nio_binding(0, nio))
-                    loop.run_until_complete(asyncio.async(vm.start()))
-                    assert mock_exec.call_args[0] == (vm._vpcs_path(),
-                                                      '-p',
-                                                      str(vm._internal_console_port),
-                                                      '-m', '1',
-                                                      '-i',
-                                                      '1',
-                                                      '-F',
-                                                      '-R',
-                                                      '-s',
-                                                      ANY,
-                                                      '-c',
-                                                      ANY,
-                                                      '-t',
-                                                      '127.0.0.1')
-                assert vm.is_running()
-                assert vm.command_line == ' '.join(mock_exec.call_args[0])
+                nio = VPCS.instance().create_nio({"type": "nio_udp", "lport": 4242, "rport": 4243, "rhost": "127.0.0.1"})
+                async_run(vm.port_add_nio_binding(0, nio))
+                loop.run_until_complete(asyncio.async(vm.start()))
+                assert mock_exec.call_args[0] == (vm._vpcs_path(),
+                                                  '-p',
+                                                  str(vm.console),
+                                                  '-m', '1',
+                                                  '-i',
+                                                  '1',
+                                                  '-F',
+                                                  '-R',
+                                                  '-s',
+                                                  ANY,
+                                                  '-c',
+                                                  ANY,
+                                                  '-t',
+                                                  '127.0.0.1')
+            assert vm.is_running()
+            assert vm.command_line == ' '.join(mock_exec.call_args[0])
         (action, event, kwargs) = async_run(queue.get(0))
         assert action == "node.updated"
         assert event == vm
@@ -135,7 +140,7 @@ def test_start_0_6_1(loop, vm, async_run):
                 async_run(vm.start())
                 assert mock_exec.call_args[0] == (vm._vpcs_path(),
                                                   '-p',
-                                                  str(vm._internal_console_port),
+                                                  str(vm.console),
                                                   '-m', '1',
                                                   '-i',
                                                   '1',
