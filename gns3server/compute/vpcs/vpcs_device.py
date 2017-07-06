@@ -27,6 +27,7 @@ from pypacker import ppcap
 
 
 from gns3server.utils.asyncio.embed_shell import EmbedShell, create_stdin_shell, create_telnet_shell
+from gns3server.crash_report import CrashReport
 from gns3server.version import __version__
 
 VERSION = __version__
@@ -262,6 +263,7 @@ class VpcsDevice(EmbedShell):
 
 
 def main():
+    CrashReport.instance()
     parser = argparse.ArgumentParser()
     parser.add_argument("-v", "--version", help="Show version", action="store_true")
     parser.add_argument("-F", help="Deprecated", action="store_true")
@@ -284,15 +286,16 @@ def main():
     #TODO: Manage mac offset bigger than 9
     shell.mac_address = "00:50:79:68:90:1" + str(args.m)
     shell.ip_address = "192.168.1.2"
-    computer_task = asyncio.Task(loop.create_datagram_endpoint(lambda: shell, local_addr=('0.0.0.0', args.s)))
-    if args.P:
+    if args.p:
+        computer_task = loop.create_datagram_endpoint(lambda: shell, local_addr=('0.0.0.0', args.s))
         shell_server = create_telnet_shell(shell)
         shell_task = asyncio.start_server(shell_server.run, '127.0.0.1', args.p, loop=loop)
-        print('Telnet console listen on', args.P)
+        print('Telnet console listen on', args.p)
         loop.run_until_complete(asyncio.gather(shell_task, computer_task))
         loop.run_forever()
     else:
         shell_task = create_stdin_shell(shell)
+        computer_task = asyncio.Task(loop.create_datagram_endpoint(lambda: shell, local_addr=('0.0.0.0', args.s)))
         loop.run_until_complete(asyncio.gather(shell_task, computer_task))
     loop.close()
 
