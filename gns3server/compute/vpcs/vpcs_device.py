@@ -19,6 +19,7 @@ import os
 import sys
 import time
 import random
+import signal
 import asyncio
 import argparse
 from pypacker.layer12 import arp, ethernet
@@ -263,11 +264,20 @@ class VpcsDevice(EmbedShell):
 
 
 def main():
+    loop = None
+
+    def exit(*args):
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, exit)
+    signal.signal(signal.SIGTERM, exit)
+
     CrashReport.instance()
     parser = argparse.ArgumentParser()
     parser.add_argument("-v", "--version", help="Show version", action="store_true")
     parser.add_argument("-F", help="Deprecated", action="store_true")
     parser.add_argument("-R", help="Deprecated", action="store_true")
+    parser.add_argument("-i", type=int, help="Deprecated")
     parser.add_argument("-t", type=str, help="Remote host", default="127.0.0.1")
     parser.add_argument("-m", type=int, help="Mac offset", default=0)
     parser.add_argument("-c", type=int, help="Remote UDP port")
@@ -285,7 +295,7 @@ def main():
     shell = VpcsDevice(dst=(args.t, args.c))
     #TODO: Manage mac offset bigger than 9
     shell.mac_address = "00:50:79:68:90:1" + str(args.m)
-    shell.ip_address = "192.168.1.2"
+    shell.ip_address = "192.168.1." + str(args.m + 1)
     if args.p:
         computer_task = loop.create_datagram_endpoint(lambda: shell, local_addr=('0.0.0.0', args.s))
         shell_server = create_telnet_shell(shell)

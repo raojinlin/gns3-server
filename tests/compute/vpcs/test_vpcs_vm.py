@@ -62,7 +62,9 @@ def test_vm_check_pyvpcs_version(loop, vm, manager):
     with asyncio_patch("gns3server.compute.vpcs.vpcs_vm.subprocess_check_output", return_value="1.0.9"):
         loop.run_until_complete(asyncio.async(vm._check_vpcs_version()))
         assert vm._vpcs_version == parse_version("1.0.9")
-
+    with asyncio_patch("gns3server.compute.vpcs.vpcs_vm.subprocess_check_output", return_value="1.0.9dev1"):
+        loop.run_until_complete(asyncio.async(vm._check_vpcs_version()))
+        assert vm._vpcs_version == parse_version("1.0.9")
 
 def test_vm_check_vpcs_version_0_6_1(loop, vm, manager):
     with asyncio_patch("gns3server.compute.vpcs.vpcs_vm.subprocess_check_output", return_value="Welcome to Virtual PC Simulator, version 0.6.1"):

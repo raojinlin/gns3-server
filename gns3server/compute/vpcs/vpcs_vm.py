@@ -33,6 +33,7 @@ from gns3server.utils.asyncio import wait_for_process_termination
 from gns3server.utils.asyncio import monitor_process
 from gns3server.utils.asyncio import subprocess_check_output
 from gns3server.utils import parse_version
+from gns3server.version import __version__
 
 from .vpcs_error import VPCSError
 from ..adapters.ethernet_adapter import EthernetAdapter
@@ -151,6 +152,9 @@ class VPCSVM(BaseNode):
         :returns: path to VPCS
         """
 
+        if 'dev' in __version__:
+            return os.path.join(os.path.dirname(os.path.realpath(__file__)), 'vpcs_device.py')
+
         path = shutil.which("pyvpcs")
         if not path:
             path = shutil.which("vpcs")
@@ -226,7 +230,7 @@ class VPCSVM(BaseNode):
                 if self._vpcs_version < parse_version("0.6.1"):
                     raise VPCSError("VPCS executable version must be >= 0.6.1 but not a 0.8")
             else:
-                raise VPCSError("Could not determine the VPCS version for {}".format(self._vpcs_path()))
+                raise VPCSError("Could not determine the VPCS version for {}: {}".format(self._vpcs_path(), output))
         except (OSError, subprocess.SubprocessError) as e:
             raise VPCSError("Error while looking for the VPCS version: {}".format(e))
 
