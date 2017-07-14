@@ -123,6 +123,16 @@ class VpcsDevice(EmbedShell):
             return "Invalid command."
 
     @asyncio.coroutine
+    def show(self, *args):
+        """
+        Print the information of VPCs (default). See show ?
+        """
+
+        print("IP\t: {}".format(self.ip_address))
+        print("MAC\t: {}".format(self.mac_address))
+        return ' '.join(args)
+
+    @asyncio.coroutine
     def ping(self, host, timeout=5):
         """
         Ping remote machine
@@ -220,9 +230,9 @@ class VpcsDevice(EmbedShell):
         if self._pcap_writer:
             self._pcap_writer.write(packet.bin())
             self._pcap_writer.flush()
-        for procotol, layer_handler in self._layer_handlers:
-            if packet[procotol]:
-                reply = layer_handler(packet[procotol], packet)
+        for protocol, layer_handler in self._layer_handlers:
+            if packet[protocol]:
+                reply = layer_handler(packet[protocol], packet)
                 if reply is False:
                     return
                 elif reply is not None:
