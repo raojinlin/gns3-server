@@ -24,8 +24,12 @@ import aiohttp
 import socket
 import shutil
 import re
+import aiofiles
 
 import logging
+
+from gns3server.utils.asyncio.md5sum import asyncio_md5sum
+
 log = logging.getLogger(__name__)
 
 from uuid import UUID, uuid4
@@ -549,17 +553,19 @@ class BaseManager:
             # We store the file under his final name only when the upload is finished
             tmp_path = path + ".tmp"
             os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(tmp_path, 'wb+') as f:
-                while True:
-                    packet = yield from stream.read(4096)
-                    if not packet:
-                        break
-                    f.write(packet)
+            f = yield from aiofiles.open(tmp_path, 'wb+')
+            while True:
+                packet = yield from stream.read(4096)
+                if not packet:
+                    break
+                yield from f.write(packet)
             os.chmod(tmp_path, stat.S_IWRITE | stat.S_IREAD | stat.S_IEXEC)
             shutil.move(tmp_path, path)
-            yield from wait_run_in_executor(md5sum, path)
+            yield from asyncio_md5sum(path)
         except OSError as e:
             raise aiohttp.web.HTTPConflict(text="Could not write image: {} because {}".format(filename, e))
+        finally:
+            f.close()
 
     def reset(self):
         """
