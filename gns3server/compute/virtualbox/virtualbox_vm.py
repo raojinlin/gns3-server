@@ -174,6 +174,15 @@ class VirtualBoxVM(BaseNode):
             trial += 1
             await asyncio.sleep(1)
 
+    async def _refresh_vm_uuid(self):
+
+        vm_info = await self._get_vm_info()
+        self._uuid = vm_info.get("UUID", self._uuid)
+        if not self._uuid:
+            raise VirtualBoxError("Could not find any UUID for VM '{}'".format(self._vmname))
+        if "memory" in vm_info:
+            self._ram = int(vm_info["memory"])
+
     async def create(self):
 
         if not self.linked_clone:
@@ -186,25 +195,18 @@ class VirtualBoxVM(BaseNode):
             raise VirtualBoxError("The VirtualBox API version is lower than 4.3")
         log.info("VirtualBox VM '{name}' [{id}] created".format(name=self.name, id=self.id))
 
-        vm_info = await self._get_vm_info()
-        if "memory" in vm_info:
-            self._ram = int(vm_info["memory"])
-        if "UUID" in vm_info:
-            self._uuid = vm_info["UUID"]
-        if not self._uuid:
-            raise VirtualBoxError("Could not find any UUID for VM '{}'".format(self._vmname))
-
         if self.linked_clone:
             if self.id and os.path.isdir(os.path.join(self.working_dir, self._vmname)):
                 self._patch_vm_uuid()
                 await self.manager.execute("registervm", [self._linked_vbox_file()])
+                await self._refresh_vm_uuid()
                 await self._reattach_linked_hdds()
-                vm_info = await self._get_vm_info()
-                self._uuid = vm_info.get("UUID")
-                if not self._uuid:
-                    raise VirtualBoxError("Could not find any UUID for VM '{}'".format(self._vmname))
+
             else:
+                await self._refresh_vm_uuid()
                 await self._create_linked_clone()
+        else:
+            await self._refresh_vm_uuid()
 
         if self._adapters:
             await self.set_adapters(self._adapters)
@@ -267,11 +269,17 @@ class VirtualBoxVM(BaseNode):
             return
 
         # VM must be powered off to start it
-        if vm_state != "poweroff":
-            raise VirtualBoxError("VirtualBox VM not powered off")
-
-        await self._set_network_options()
-        await self._set_serial_console()
+        if vm_state == "saved":
+            result = await self.manager.execute("guestproperty", ["get", self._uuid, "SavedByGNS3"])
+            if result == ['No value set!']:
+                raise VirtualBoxError("VirtualBox VM was not saved from GNS3")
+            else:
+                await self.manager.execute("guestproperty", ["delete", self._uuid, "SavedByGNS3"])
+        elif vm_state == "poweroff":
+            await self._set_network_options()
+            await self._set_serial_console()
+        else:
+            raise VirtualBoxError("VirtualBox VM '{}' is not powered off (current state is '{}')".format(self.name, vm_state))
 
         # check if there is enough RAM to run
         self.check_available_ram(self.ram)
@@ -312,9 +320,12 @@ class VirtualBoxVM(BaseNode):
         await self._stop_ubridge()
         await self._stop_remote_console()
         vm_state = await self._get_vm_state()
-        if vm_state == "running" or vm_state == "paused" or vm_state == "stuck":
+        log.info("Stopping VirtualBox VM '{name}' [{id}] (current state is {vm_state})".format(name=self.name, id=self.id, vm_state=vm_state))
+        if vm_state in ("running", "paused"):
 
             if self.on_close == "save_vm_state":
+                # add a guest property to know the VM has been saved
+                await self.manager.execute("guestproperty", ["set", self._uuid, "SavedByGNS3", "yes"])
                 result = await self._control_vm("savestate")
                 self.status = "stopped"
                 log.debug("Stop result: {}".format(result))
@@ -338,21 +349,26 @@ class VirtualBoxVM(BaseNode):
                 result = await self._control_vm("poweroff")
                 self.status = "stopped"
                 log.debug("Stop result: {}".format(result))
+        elif vm_state == "aborted":
+            self.status = "stopped"
 
+        if self.status == "stopped":
             log.info("VirtualBox VM '{name}' [{id}] stopped".format(name=self.name, id=self.id))
             await asyncio.sleep(0.5)  # give some time for VirtualBox to unlock the VM
-            try:
-                # deactivate the first serial port
-                await self._modify_vm("--uart1 off")
-            except VirtualBoxError as e:
-                log.warning("Could not deactivate the first serial port: {}".format(e))
+            if self.on_close != "save_vm_state":
+                # do some cleaning when the VM is powered off
+                try:
+                    # deactivate the first serial port
+                    await self._modify_vm("--uart1 off")
+                except VirtualBoxError as e:
+                    log.warning("Could not deactivate the first serial port: {}".format(e))
 
-            for adapter_number in range(0, self._adapters):
-                nio = self._ethernet_adapters[adapter_number].get_nio(0)
-                if nio:
-                    await self._modify_vm("--nictrace{} off".format(adapter_number + 1))
-                    await self._modify_vm("--cableconnected{} off".format(adapter_number + 1))
-                    await self._modify_vm("--nic{} null".format(adapter_number + 1))
+                for adapter_number in range(0, self._adapters):
+                    nio = self._ethernet_adapters[adapter_number].get_nio(0)
+                    if nio:
+                        await self._modify_vm("--nictrace{} off".format(adapter_number + 1))
+                        await self._modify_vm("--cableconnected{} off".format(adapter_number + 1))
+                        await self._modify_vm("--nic{} null".format(adapter_number + 1))
         await super().stop()
 
     async def suspend(self):
@@ -915,7 +931,9 @@ class VirtualBoxVM(BaseNode):
         result = await self.manager.execute("clonevm", args)
         log.debug("VirtualBox VM: {} cloned".format(result))
 
+        # refresh the UUID and vmname to match with the clone
         self._vmname = self._name
+        await self._refresh_vm_uuid()
         await self.manager.execute("setextradata", [self._uuid, "GNS3/Clone", "yes"])
 
         # We create a reset snapshot in order to simplify life of user who want to rollback their VM

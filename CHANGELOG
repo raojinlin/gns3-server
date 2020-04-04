@@ -1,5 +1,111 @@
 # Change Log
 
+## 2.2.6 26/03/2020
+
+* Remove --local when starting Docker dev server.
+* Release 2020.1.0-alpha.1
+* Monitor ubrige processes.
+* Add Xvnc command to the VNC servers list. Fixes #172
+* Allow controller to reconnect to compute if communication is lost. Ref #1634
+* Improvement of support for docker USER directive. Fixes #1727.
+* Fix cannot delete Dynamips router the content of the "usage" field. Fixes https://github.com/GNS3/gns3-gui/issues/2947
+* Prevent locked drawings to be deleted. Fixes https://github.com/GNS3/gns3-gui/issues/2948
+* Fix issues with empty project variables. Fixes https://github.com/GNS3/gns3-gui/issues/2941
+* Upgrade psutil to version 5.6.6 due to CVE-2019-18874 https://github.com/advisories/GHSA-qfc5-mcwq-26q8
+* Remove 'format=raw' from the Qemu options of the disk interfaces. Ref #1699
+* Allocate application IDs for IOU nodes on the controller. An application ID is used by IOU to generate its interface Mac addresses. They must be unique across all opened projects sharing the same computes to avoid Mac address collisions.
+* Require VirtualBox >= 6.0 on AMD and >= 6.1 on Intel processors (for GNS3 VM only). Fixes #1610
+* Add nvme disk interface and fix scsi disk interface for Qemu VMs.
+* Disallow using "legacy networking mode" with Qemu >= 2.9.0
+* Add latest Qemu nic models.
+* Attempt to fix error when loading wmi module. Fixes #1712
+* Handle "aborted" state for VirtualBox VMs. Fixes #1702
+* Change how Hyper-V VMs are found. Ref #1612
+
+## 2.2.5 09/01/2020
+
+* No changes
+
+## 2.2.4 08/01/2020
+
+* Accept a node name when creating a node from a template using the API. Fixes #1708
+* Disallow to modify a template if changes cannot be written on disk. Fixes #1695
+* Fix renaming IOL hostname replaces %h only in a single place. Fixes #1707
+* Add symbols_path
+* Bundle Web Ui version 2019.2.0-alpha.11
+* Change the default UDP port range to be 20000 to 30000 in gns3_server.conf Ref #1271
+* Fix cannot power on VirtualBox VM in saved state. Ref #1702
+
+## 2.2.3 12/11/2019
+
+* Improved how the path to the config file is actually determined
+* Return HTTP status code 204 in API when project successfully closed. Fixes #1689
+* Python3.8 support. Ref https://github.com/GNS3/gns3-gui/issues/2895
+* Make sure still support Python >= 3.5.3
+* Added workaround for #1690. Added venv/ to .gitignore
+* Fix exception when adding VirtualBox VM. Fixes #1685.
+* Set psutil to version 5.6.3 in requirements.txt
+* Add `LimitNOFILE=16384` to GNS3 service. Ref #1678
+* Change the default UDP port range to be 20000 to 30000. Ref #1271
+
+## 2.2.2 04/11/2019
+
+* Release 2019.2.0-alpha.10
+* Fix how PCI bridges are created for Qemu VMs with greater than 32 interfaces.
+* Fix broken support for cloned VirtualBox VMs. Fixes https://github.com/GNS3/gns3-gui/issues/2889
+* Handle builtin entry does not exist when adding node from template (new fix).
+* Let systemd directly supervises the GNS3 service. Fixes #1678
+
+## 2.2.1 01/11/2019
+
+* Handle builtin entry does not exist when adding node from template.
+* Upgrade aiohttp to version 3.6.2
+* Fix issue when linking to more than one NAT node with allowed_interface option enabled. Fixes #1671
+* Prevent deleting a GNS3 project outside the project directory. Ref #1669
+* Do not send "console_type" property to computes for all builtin nodes excepting Ethernet switches. Fixes https://github.com/GNS3/gns3-gui/issues/2882
+* Fix QEMU link detection flaky on last port. Fixes #1666
+* Use compatible shlex_quote to handle case where Windows needs double quotes around file names, not single quotes. Ref https://github.com/GNS3/gns3-gui/issues/2866
+* Use 0.0.0.0 by default for server host. Fixes https://github.com/GNS3/gns3-server/issues/1663
+* Improvement to validate HTTP authentication config. Ref #1662
+* Use versioned config directory for profiles. Fixes #1664
+* Enable nested hardware virtualization by default for GNS3 VM running in VirtualBox. Fixes #1377 No error is sent by VBoxManage is this feature is not available, for instance with Intel processors.
+* Set default host to "localhost". Fixes https://github.com/GNS3/gns3-server/issues/1663
+* Improve process to get guest IP address from GNS3 VM running in VMware workstation/player. Ref https://github.com/GNS3/gns3-gui/issues/2866
+* Fix error with console type in Ethernet switch schema. Fixes #1659
+
+## 2.2.0 30/09/2019
+
+* Add debug message for what directory is checked for Qemu binaries. Ref #1655
+* Release 2019.2.0-alpha.8
+* Fix single quote is not closed. Fixes #1654
+* Fix wrong Dynamips command used to rename an ATM switch. Fixes #1651
+* Don't specify the PCI bus for AHCI device
+* Add id value to all Qemu drives
+
+## 2.2.0rc5 09/09/2019
+
+* Fix AttributeError: Cannot set attribute '%s'. Fixes #1646
+
+## 2.2.0rc4 30/08/2019
+
+* Release 2019.2.0-alpha.7
+* Check that vcpus value for GNS3 VM is an integer. Fixes #1636
+* Make x,y optional for creating links via API. Fixes #1630
+* Set default_name_format for some builtin nodes.
+* Allow "none" for compute_id in templates.
+
+## 2.2.0rc3 12/08/2019
+
+* Revert to jsonschema 2.6.0 due to packaging problem.
+
+## 2.2.0rc2 10/08/2019
+
+* Bump jsonschema to version 3.0.2
+* List Hyper-V VMs on non-english OSes. Fixes #1612
+* Add missing default values in Cloud schema.
+* Release 2019.2.0-alpha.5
+* Fix redirection to web-ui bundled server
+
 ## 2.2.0b4 11/07/2019
 
 * Requires a project to be opened to start/stop/suspend all nodes. Fixes #1609

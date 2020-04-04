@@ -37,7 +37,7 @@ BASE_TEMPLATE_PROPERTIES = {
     },
     "compute_id": {
         "description": "Compute identifier",
-        "type": "string"
+        "type": ["null", "string"]
     },
     "default_name_format": {
         "description": "Default name format",
@@ -96,6 +96,10 @@ TEMPLATE_USAGE_SCHEMA = {
         "y": {
             "description": "Y position",
             "type": "integer"
+        },
+        "name": {
+            "description": "Use this name to create a new node",
+            "type": ["null", "string"]
         },
         "compute_id": {
             "description": "If the template don't have a default compute use this compute",

@@ -70,6 +70,10 @@ class IOUVM(BaseNode):
 
         super().__init__(name, node_id, project, manager, console=console, console_type=console_type)
 
+        log.info('IOU "{name}" [{id}]: assigned with application ID {application_id}'.format(name=self._name,
+                                                                                             id=self._id,
+                                                                                             application_id=application_id))
+
         self._iou_process = None
         self._telnet_server = None
         self._iou_stdout_file = ""
@@ -325,7 +329,7 @@ class IOUVM(BaseNode):
 
         if self.startup_config_file:
             content = self.startup_config_content
-            content = re.sub(r"^hostname .+$", "hostname " + new_name, content, flags=re.MULTILINE)
+            content = re.sub(r"hostname .+$", "hostname " + new_name, content, flags=re.MULTILINE)
             self.startup_config_content = content
 
         super(IOUVM, IOUVM).name.__set__(self, new_name)

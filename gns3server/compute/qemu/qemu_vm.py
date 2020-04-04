@@ -23,9 +23,9 @@ order to run a QEMU VM.
 import sys
 import os
 import re
+import shlex
 import math
 import shutil
-import shlex
 import asyncio
 import socket
 import gns3server
@@ -33,7 +33,7 @@ import subprocess
 import time
 import json
 
-from gns3server.utils import parse_version
+from gns3server.utils import parse_version, shlex_quote
 from gns3server.utils.asyncio import subprocess_check_output, cancellable_wait_run_in_executor
 from .qemu_error import QemuError
 from .utils.qcow2 import Qcow2, Qcow2Error
@@ -969,7 +969,7 @@ class QemuVM(BaseNode):
             self.check_available_ram(self.ram)
 
             command = await self._build_command()
-            command_string = " ".join(shlex.quote(s) for s in command)
+            command_string = " ".join(shlex_quote(s) for s in command)
             try:
                 log.info("Starting QEMU with: {}".format(command_string))
                 self._stdout_file = os.path.join(self.working_dir, "qemu.log")
@@ -1173,8 +1173,12 @@ class QemuVM(BaseNode):
             for command in commands:
                 log.info("Execute QEMU monitor command: {}".format(command))
                 try:
-                    writer.write(command.encode('ascii') + b"\n")
-                    await asyncio.wait_for(reader.readline(), timeout=3)  # echo of the command
+                    cmd_byte = command.encode('ascii')
+                    writer.write(cmd_byte + b"\n")
+                    while True:
+                        line = await asyncio.wait_for(reader.readline(), timeout=3)  # echo of the command
+                        if not line or cmd_byte in line:
+                            break
                 except asyncio.TimeoutError:
                     log.warning("Missing echo of command '{}'".format(command))
                 except OSError as e:
@@ -1566,7 +1570,7 @@ class QemuVM(BaseNode):
 
         self._qemu_img_stdout_file = os.path.join(self.working_dir, "qemu-img.log")
         log.info("logging to {}".format(self._qemu_img_stdout_file))
-        command_string = " ".join(shlex.quote(s) for s in command)
+        command_string = " ".join(shlex_quote(s) for s in command)
         log.info("Executing qemu-img with: {}".format(command_string))
         with open(self._qemu_img_stdout_file, "w", encoding="utf-8") as fd:
             process = await asyncio.create_subprocess_exec(*command, stdout=fd, stderr=subprocess.STDOUT, cwd=self.working_dir)
@@ -1640,11 +1644,21 @@ class QemuVM(BaseNode):
 
             if interface == "sata":
                 # special case, sata controller doesn't exist in Qemu
-                options.extend(["-device", 'ahci,id=ahci{},bus=pci.{}'.format(disk_index, disk_index)])
-                options.extend(["-drive", 'file={},if=none,id=drive-sata-disk{},index={},media=disk'.format(disk, disk_index, disk_index)])
-                options.extend(["-device", 'ide-drive,drive=drive-sata-disk{},bus=ahci{}.0,id=drive-sata-disk{}'.format(disk_index, disk_index, disk_index)])
+                options.extend(["-device", 'ahci,id=ahci{}'.format(disk_index)])
+                options.extend(["-drive", 'file={},if=none,id=drive{},index={},media=disk'.format(disk, disk_index, disk_index)])
+                options.extend(["-device", 'ide-drive,drive=drive{},bus=ahci{}.0,id=drive{}'.format(disk_index, disk_index, disk_index)])
+            elif interface == "nvme":
+                options.extend(["-drive", 'file={},if=none,id=drive{},index={},media=disk'.format(disk, disk_index, disk_index)])
+                options.extend(["-device", 'nvme,drive=drive{},serial={}'.format(disk_index, disk_index)])
+            elif interface == "scsi":
+                options.extend(["-device", 'virtio-scsi-pci,id=scsi{}'.format(disk_index)])
+                options.extend(["-drive", 'file={},if=none,id=drive{},index={},media=disk'.format(disk, disk_index, disk_index)])
+                options.extend(["-device", 'scsi-hd,drive=drive{}'.format(disk_index)])
+            #elif interface == "sd":
+            #    options.extend(["-drive", 'file={},id=drive{},index={}'.format(disk, disk_index, disk_index)])
+            #    options.extend(["-device", 'sd-card,drive=drive{},id=drive{}'.format(disk_index, disk_index, disk_index)])
             else:
-                options.extend(["-drive", 'file={},if={},index={},media=disk'.format(disk, interface, disk_index)])
+                options.extend(["-drive", 'file={},if={},index={},media=disk,id=drive{}'.format(disk, interface, disk_index, disk_index)])
 
         return options
 
@@ -1718,25 +1732,24 @@ class QemuVM(BaseNode):
 
         patched_qemu = False
         if self._legacy_networking:
-            version = await self.manager.get_qemu_version(self.qemu_path)
-            if version and parse_version(version) < parse_version("1.1.0"):
-                # this is a patched Qemu if version is below 1.1.0
-                patched_qemu = True
+            qemu_version = await self.manager.get_qemu_version(self.qemu_path)
+            if qemu_version:
+                if parse_version(qemu_version) >= parse_version("2.9.0"):
+                    raise QemuError("Qemu version 2.9.0 and later doesn't support legacy networking mode")
+                if parse_version(qemu_version) < parse_version("1.1.0"):
+                    # this is a patched Qemu if version is below 1.1.0
+                    patched_qemu = True
 
         # Each 32 PCI device we need to add a PCI bridge with max 9 bridges
         pci_devices = 4 + len(self._ethernet_adapters)  # 4 PCI devices are use by default by qemu
-        bridge_id = 0
-        for bridge_id in range(1, math.floor(pci_devices / 32) + 1):
-            network_options.extend(["-device", "i82801b11-bridge,id=dmi_pci_bridge{bridge_id}".format(bridge_id=bridge_id)])
-            network_options.extend(["-device", "pci-bridge,id=pci-bridge{bridge_id},bus=dmi_pci_bridge{bridge_id},chassis_nr=0x1,addr=0x{bridge_id},shpc=off".format(bridge_id=bridge_id)])
-
-        if bridge_id > 1:
+        pci_bridges = math.floor(pci_devices / 32)
+        pci_bridges_created = 0
+        if pci_bridges >= 1:
             qemu_version = await self.manager.get_qemu_version(self.qemu_path)
             if qemu_version and parse_version(qemu_version) < parse_version("2.4.0"):
                 raise QemuError("Qemu version 2.4 or later is required to run this VM with a large number of network adapters")
 
-        pci_device_id = 4 + bridge_id  # Bridge consume PCI ports
-
+        pci_device_id = 4 + pci_bridges  # Bridge consume PCI ports
         for adapter_number, adapter in enumerate(self._ethernet_adapters):
             mac = int_to_macaddress(macaddress_to_int(self._mac_address) + adapter_number)
 
@@ -1781,6 +1794,10 @@ class QemuVM(BaseNode):
                 device_string = "{},mac={}".format(adapter_type, mac)
                 bridge_id = math.floor(pci_device_id / 32)
                 if bridge_id > 0:
+                    if pci_bridges_created < bridge_id:
+                        network_options.extend(["-device", "i82801b11-bridge,id=dmi_pci_bridge{bridge_id}".format(bridge_id=bridge_id)])
+                        network_options.extend(["-device", "pci-bridge,id=pci-bridge{bridge_id},bus=dmi_pci_bridge{bridge_id},chassis_nr=0x1,addr=0x{bridge_id},shpc=off".format(bridge_id=bridge_id)])
+                        pci_bridges_created += 1
                     addr = pci_device_id % 32
                     device_string = "{},bus=pci-bridge{bridge_id},addr=0x{addr:02x}".format(device_string, bridge_id=bridge_id, addr=addr)
                 pci_device_id += 1

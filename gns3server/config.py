@@ -45,6 +45,9 @@ class Config:
         self._files = files
         self._profile = profile
         if files and len(files):
+            directory_name = os.path.dirname(files[0])
+            if not directory_name or directory_name == "":
+                files[0] = os.path.dirname(os.path.abspath(files[0])) + os.path.sep + files[0]
             self._main_config_file = files[0]
         else:
             self._main_config_file = None
@@ -70,7 +73,7 @@ class Config:
 
             if self._profile:
                 legacy_user_dir = os.path.join(appdata, appname, "profiles", self._profile)
-                versioned_user_dir = legacy_user_dir
+                versioned_user_dir = os.path.join(appdata, appname, version, "profiles", self._profile)
             else:
                 legacy_user_dir = os.path.join(appdata, appname)
                 versioned_user_dir = os.path.join(appdata, appname, version)
@@ -107,7 +110,7 @@ class Config:
 
             if self._profile:
                 legacy_user_dir = os.path.join(home, ".config", appname, "profiles", self._profile)
-                versioned_user_dir = legacy_user_dir
+                versioned_user_dir = os.path.join(home, ".config", appname, version, "profiles", self._profile)
             else:
                 legacy_user_dir = os.path.join(home, ".config", appname)
                 versioned_user_dir = os.path.join(home, ".config", appname, version)

@@ -1,8 +1,8 @@
-curl -i -X POST 'http://localhost:3080/v2/compute/projects/a1e920ca-338a-4e9f-b363-aa607b09dd80/vpcs/nodes/1fa028fc-c993-4880-a8dc-dc60e30b22a0/duplicate' -d '{"destination_node_id": "a96800d2-eb29-4ac2-8844-a7d85b937708"}'
+curl -i -X POST 'http://localhost:3080/v2/compute/projects/a1e920ca-338a-4e9f-b363-aa607b09dd80/vpcs/nodes/cdb53365-76f2-45a7-a975-e10ab917ed69/duplicate' -d '{"destination_node_id": "0178647e-50b2-42de-8773-59b8d8a69c3a"}'
 
-POST /v2/compute/projects/a1e920ca-338a-4e9f-b363-aa607b09dd80/vpcs/nodes/1fa028fc-c993-4880-a8dc-dc60e30b22a0/duplicate HTTP/1.1
+POST /v2/compute/projects/a1e920ca-338a-4e9f-b363-aa607b09dd80/vpcs/nodes/cdb53365-76f2-45a7-a975-e10ab917ed69/duplicate HTTP/1.1
 {
-    "destination_node_id": "a96800d2-eb29-4ac2-8844-a7d85b937708"
+    "destination_node_id": "0178647e-50b2-42de-8773-59b8d8a69c3a"
 }
 
 
@@ -10,8 +10,8 @@ HTTP/1.1 201
 Connection: close
 Content-Length: 4
 Content-Type: application/json
-Date: Sat, 30 Mar 2019 08:49:45 GMT
-Server: Python/3.6 GNS3/2.2.0dev8
+Date: Wed, 08 Jan 2020 02:27:48 GMT
+Server: Python/3.6 GNS3/2.2.4dev1
 X-Route: /v2/compute/projects/{project_id}/vpcs/nodes/{node_id}/duplicate
 
 true

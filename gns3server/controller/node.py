@@ -100,7 +100,7 @@ class Node:
                     try:
                         setattr(self, prop, kwargs[prop])
                     except AttributeError as e:
-                        log.critical("Cannot set attribute '%s'".format(prop))
+                        log.critical("Cannot set attribute '{}'".format(prop))
                         raise e
                 else:
                     if prop not in self.CONTROLLER_ONLY_PROPERTIES and kwargs[prop] is not None and kwargs[prop] != "":
@@ -473,7 +473,8 @@ class Node:
         if self._console:
             # console is optional for builtin nodes
             data["console"] = self._console
-        if self._console_type:
+        if self._console_type and self._node_type not in ("cloud", "nat", "ethernet_hub", "frame_relay_switch", "atm_switch"):
+            # console_type is not supported by all builtin nodes excepting Ethernet switch
             data["console_type"] = self._console_type
         if self.custom_adapters:
             data["custom_adapters"] = self.custom_adapters
@@ -482,6 +483,7 @@ class Node:
         for key in list(data.keys()):
             if data[key] is None or data[key] is {} or key in self.CONTROLLER_ONLY_PROPERTIES:
                 del data[key]
+
         return data
 
     async def destroy(self):
@@ -650,14 +652,14 @@ class Node:
         elif self._node_type in ("ethernet_switch", "ethernet_hub"):
             # Basic node we don't want to have adapter number
             port_number = 0
-            for port in self._properties["ports_mapping"]:
+            for port in self._properties.get("ports_mapping", []):
                 self._ports.append(PortFactory(port["name"], 0, 0, port_number, "ethernet", short_name="e{}".format(port_number)))
                 port_number += 1
         elif self._node_type in ("vpcs", "traceng"):
             self._ports.append(PortFactory("Ethernet0", 0, 0, 0, "ethernet", short_name="e0"))
         elif self._node_type in ("cloud", "nat"):
             port_number = 0
-            for port in self._properties["ports_mapping"]:
+            for port in self._properties.get("ports_mapping", []):
                 self._ports.append(PortFactory(port["name"], 0, 0, port_number, "ethernet", short_name=port["name"]))
                 port_number += 1
         else:

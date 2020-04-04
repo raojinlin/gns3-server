@@ -23,6 +23,8 @@ import socket
 
 from .base_gns3_vm import BaseGNS3VM
 from .gns3_vm_error import GNS3VMError
+from gns3server.utils import parse_version
+from gns3server.utils.asyncio import wait_run_in_executor
 
 from ...compute.virtualbox import (
     VirtualBox,
@@ -38,6 +40,7 @@ class VirtualBoxGNS3VM(BaseGNS3VM):
 
         self._engine = "virtualbox"
         super().__init__(controller)
+        self._system_properties = {}
         self._virtualbox_manager = VirtualBox()
 
     async def _execute(self, subcommand, args, timeout=60):
@@ -62,6 +65,42 @@ class VirtualBoxGNS3VM(BaseGNS3VM):
                 if name == "VMState":
                     return value.strip('"')
         return "unknown"
+
+    async def _get_system_properties(self):
+        """
+        Returns the VM state (e.g. running, paused etc.)
+
+        :returns: state (string)
+        """
+
+        properties = await self._execute("list", ["systemproperties"])
+        for prop in properties.splitlines():
+            try:
+                name, value = prop.split(':', 1)
+            except ValueError:
+                continue
+            self._system_properties[name.strip()] = value.strip()
+
+    async def _check_requirements(self):
+        """
+        Checks if the GNS3 VM can run on VirtualBox
+        """
+
+        if not self._system_properties:
+            await self._get_system_properties()
+        if "API version" not in self._system_properties:
+            raise VirtualBoxError("Can't access to VirtualBox API version:\n{}".format(self._system_properties))
+        from cpuinfo import get_cpu_info
+        cpu_info = await wait_run_in_executor(get_cpu_info)
+        vendor_id = cpu_info['vendor_id']
+        if vendor_id == "GenuineIntel":
+            if parse_version(self._system_properties["API version"]) < parse_version("6_1"):
+                raise VirtualBoxError("VirtualBox version 6.1 or above is required to run the GNS3 VM with nested virtualization enabled on Intel processors")
+        elif vendor_id == "AuthenticAMD":
+            if parse_version(self._system_properties["API version"]) < parse_version("6_0"):
+                raise VirtualBoxError("VirtualBox version 6.0 or above is required to run the GNS3 VM with nested virtualization enabled on AMD processors")
+        else:
+            log.warning("Could not determine CPU vendor: {}".format(vendor_id))
 
     async def _look_for_interface(self, network_backend):
         """
@@ -173,12 +212,15 @@ class VirtualBoxGNS3VM(BaseGNS3VM):
         List all VirtualBox VMs
         """
 
-        return (await self._virtualbox_manager.list_vms())
+        await self._check_requirements()
+        return await self._virtualbox_manager.list_vms()
 
     async def start(self):
         """
         Start the GNS3 VM.
         """
+
+        await self._check_requirements()
 
         # get a NAT interface number
         nat_interface_number = await self._look_for_interface("nat")
@@ -214,8 +256,10 @@ class VirtualBoxGNS3VM(BaseGNS3VM):
         log.info('"{}" state is {}'.format(self._vmname, vm_state))
 
         if vm_state == "poweroff":
+            log.info("Update GNS3 VM settings (CPU, RAM and Hardware Virtualization)")
             await self.set_vcpus(self.vcpus)
             await self.set_ram(self.ram)
+            await self.enable_nested_hw_virt()
 
         if vm_state in ("poweroff", "saved"):
             # start the VM if it is not running
@@ -279,7 +323,7 @@ class VirtualBoxGNS3VM(BaseGNS3VM):
                     pass
             remaining_try -= 1
             await asyncio.sleep(1)
-        raise GNS3VMError("Could not get the GNS3 VM ip make sure the VM receive an IP from VirtualBox")
+        raise GNS3VMError("Could not find guest IP address for {}".format(self.vmname))
 
     async def suspend(self):
         """
@@ -338,6 +382,14 @@ class VirtualBoxGNS3VM(BaseGNS3VM):
 
         await self._execute("modifyvm", [self._vmname, "--memory", str(ram)], timeout=3)
         log.info("GNS3 VM RAM amount set to {}".format(ram))
+
+    async def enable_nested_hw_virt(self):
+        """
+        Enable nested hardware virtualization for the GNS3 VM.
+        """
+
+        await self._execute("modifyvm", [self._vmname, "--nested-hw-virt", "on"], timeout=3)
+        log.info("Nested hardware virtualization enabled")
 
     async def set_hostonly_network(self, adapter_number, hostonly_network_name):
         """

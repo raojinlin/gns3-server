@@ -177,9 +177,11 @@ class Template:
 
     def update(self, **kwargs):
 
-        self._settings.update(kwargs)
+
         from gns3server.controller import Controller
         controller = Controller.instance()
+        Controller.instance().check_can_write_config()
+        self._settings.update(kwargs)
         controller.notification.controller_emit("template.updated", self.__json__())
         controller.save()
 
@@ -203,7 +205,11 @@ class Template:
         settings.update({"template_id": self._id,
                          "builtin": self.builtin})
 
-        if not self.builtin:
+        if self.builtin:
+            # builin templates have compute_id set to None to tell clients
+            # to select a compute
+            settings["compute_id"] = None
+        else:
             settings["compute_id"] = self.compute_id
 
         return settings

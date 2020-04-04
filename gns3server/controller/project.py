@@ -38,6 +38,7 @@ from .topology import project_to_topology, load_topology
 from .udp_link import UDPLink
 from ..config import Config
 from ..utils.path import check_path_allowed, get_default_project_directory
+from ..utils.application_id import get_next_application_id
 from ..utils.asyncio.pool import Pool
 from ..utils.asyncio import locking
 from ..utils.asyncio import aiozipstream
@@ -125,6 +126,8 @@ class Project:
         if not os.path.exists(self._topology_file()):
             assert self._status != "closed"
             self.dump()
+
+        self._iou_id_lock = asyncio.Lock()
 
     def emit_notification(self, action, event):
         """
@@ -490,7 +493,7 @@ class Project:
         return new_name
 
     @open_required
-    async def add_node_from_template(self, template_id, x=0, y=0, compute_id=None):
+    async def add_node_from_template(self, template_id, x=0, y=0, name=None, compute_id=None):
         """
         Create a node from a template.
         """
@@ -503,26 +506,20 @@ class Project:
         template["x"] = x
         template["y"] = y
         node_type = template.pop("template_type")
-        compute = self.controller.get_compute(template.pop("compute_id", compute_id))
-        name = template.pop("name")
+        if template.pop("builtin", False) is True:
+            # compute_id is selected by clients for builtin templates
+            compute = self.controller.get_compute(compute_id)
+        else:
+            compute = self.controller.get_compute(template.pop("compute_id", compute_id))
+        template_name = template.pop("name")
         default_name_format = template.pop("default_name_format", "{name}-{0}")
-        name = default_name_format.replace("{name}", name)
+        if name is None:
+            name = default_name_format.replace("{name}", template_name)
         node_id = str(uuid.uuid4())
-        template.pop("builtin") # not needed to add a node
         node = await self.add_node(compute, name, node_id, node_type=node_type, **template)
         return node
 
-    @open_required
-    async def add_node(self, compute, name, node_id, dump=True, node_type=None, **kwargs):
-        """
-        Create a node or return an existing node
-
-        :param dump: Dump topology to disk
-        :param kwargs: See the documentation of node
-        """
-
-        if node_id in self._nodes:
-            return self._nodes[node_id]
+    async def _create_node(self, compute, name, node_id, node_type=None, **kwargs):
 
         node = Node(self, compute, name, node_id=node_id, node_type=node_type, **kwargs)
         if compute not in self._project_created_on_compute:
@@ -543,10 +540,39 @@ class Project:
                 data["variables"] = self._variables
 
             await compute.post("/projects", data=data)
-
             self._project_created_on_compute.add(compute)
+
         await node.create()
         self._nodes[node.id] = node
+
+        return node
+
+    @open_required
+    async def add_node(self, compute, name, node_id, dump=True, node_type=None, **kwargs):
+        """
+        Create a node or return an existing node
+
+        :param dump: Dump topology to disk
+        :param kwargs: See the documentation of node
+        """
+
+        if node_id in self._nodes:
+            return self._nodes[node_id]
+
+        if node_type == "iou":
+            async with self._iou_id_lock:
+                # wait for a IOU node to be completely created before adding a new one
+                # this is important otherwise we allocate the same application ID (used
+                # to generate MAC addresses) when creating multiple IOU node at the same time
+                if "properties" in kwargs.keys():
+                    # allocate a new application id for nodes loaded from the project
+                    kwargs.get("properties")["application_id"] = get_next_application_id(self._controller.projects, compute)
+                elif "application_id" not in kwargs.keys() and not kwargs.get("properties"):
+                    # allocate a new application id for nodes added to the project
+                    kwargs["application_id"] = get_next_application_id(self._controller.projects, compute)
+                node = await self._create_node(compute, name, node_id, node_type, **kwargs)
+        else:
+            node = await self._create_node(compute, name, node_id, node_type, **kwargs)
         self.emit_notification("node.created", node.__json__())
         if dump:
             self.dump()
@@ -658,6 +684,8 @@ class Project:
     @open_required
     async def delete_drawing(self, drawing_id):
         drawing = self.get_drawing(drawing_id)
+        if drawing.locked:
+            raise aiohttp.web.HTTPConflict(text="Drawing ID {} cannot be deleted because it is locked".format(drawing_id))
         del self._drawings[drawing.id]
         self.dump()
         self.emit_notification("drawing.deleted", drawing.__json__())
@@ -812,9 +840,12 @@ class Project:
         await self.delete_on_computes()
         await self.close()
         try:
+            project_directory = get_default_project_directory()
+            if not os.path.commonprefix([project_directory, self.path]) == project_directory:
+                raise aiohttp.web.HTTPConflict(text="Project '{}' cannot be deleted because it is not in the default project directory: '{}'".format(self._name, project_directory))
             shutil.rmtree(self.path)
         except OSError as e:
-            raise aiohttp.web.HTTPConflict(text="Can not delete project directory {}: {}".format(self.path, str(e)))
+            raise aiohttp.web.HTTPConflict(text="Cannot delete project directory {}: {}".format(self.path, str(e)))
 
     async def delete_on_computes(self):
         """
@@ -1095,12 +1126,11 @@ class Project:
         data['z'] = z
         data['locked'] = False  # duplicated node must not be locked
         new_node_uuid = str(uuid.uuid4())
-        new_node = await self.add_node(
-            node.compute,
-            node.name,
-            new_node_uuid,
-            node_type=node_type,
-            **data)
+        new_node = await self.add_node(node.compute,
+                                       node.name,
+                                       new_node_uuid,
+                                       node_type=node_type,
+                                       **data)
         try:
             await node.post("/duplicate", timeout=None, data={
                 "destination_node_id": new_node_uuid
